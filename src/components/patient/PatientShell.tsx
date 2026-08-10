@@ -3,6 +3,7 @@ import { LogoutButton } from "@/components/LogoutButton";
 
 const links = [
   { href: "/patient", label: "Home" },
+  { href: "/patient/doctors", label: "Doctors" },
   { href: "/patient/records", label: "Records" },
   { href: "/patient/appointments", label: "Appointments" },
 ];
