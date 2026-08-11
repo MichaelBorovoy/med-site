@@ -610,6 +610,64 @@ export function listDoctors(category?: string) {
     .all() as DoctorRow[];
 }
 
+export function searchDoctors(options?: {
+  query?: string;
+  category?: string;
+  page?: number;
+  pageSize?: number;
+}) {
+  const query = options?.query?.trim() || "";
+  const category =
+    options?.category && options.category !== "All"
+      ? options.category.trim()
+      : "";
+  const pageSize = Math.min(Math.max(options?.pageSize || 10, 1), 50);
+  const page = Math.max(options?.page || 1, 1);
+  const offset = (page - 1) * pageSize;
+
+  const where: string[] = [];
+  const params: Array<string | number> = [];
+
+  if (category) {
+    where.push("category = ?");
+    params.push(category);
+  }
+
+  if (query) {
+    where.push(
+      `(full_name LIKE ? OR specialty LIKE ? OR experience_summary LIKE ? OR education LIKE ? OR languages LIKE ?)`,
+    );
+    const like = `%${query}%`;
+    params.push(like, like, like, like, like);
+  }
+
+  const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
+  const db = getDb();
+
+  const total = (
+    db
+      .prepare(`SELECT COUNT(*) AS count FROM doctors ${whereSql}`)
+      .get(...params) as { count: number }
+  ).count;
+
+  const doctors = db
+    .prepare(
+      `SELECT * FROM doctors
+       ${whereSql}
+       ORDER BY category ASC, full_name ASC
+       LIMIT ? OFFSET ?`,
+    )
+    .all(...params, pageSize, offset) as DoctorRow[];
+
+  return {
+    doctors,
+    total,
+    page,
+    pageSize,
+    totalPages: Math.max(1, Math.ceil(total / pageSize)),
+  };
+}
+
 export function getDoctor(id: number) {
   return getDb()
     .prepare("SELECT * FROM doctors WHERE id = ?")

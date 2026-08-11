@@ -1,8 +1,29 @@
+import { Suspense } from "react";
 import { DoctorsDirectory } from "@/components/doctors/DoctorsDirectory";
-import { listDoctorCategories, listDoctors } from "@/lib/db";
+import { listDoctorCategories, searchDoctors } from "@/lib/db";
 
-export default async function PatientDoctorsPage() {
-  const doctors = listDoctors();
+type SearchParams = Promise<{
+  q?: string;
+  category?: string;
+  page?: string;
+}>;
+
+export default async function PatientDoctorsPage({
+  searchParams,
+}: {
+  searchParams: SearchParams;
+}) {
+  const params = await searchParams;
+  const query = params.q?.trim() || "";
+  const category = params.category?.trim() || "All";
+  const page = Number(params.page || "1") || 1;
+
+  const result = searchDoctors({
+    query,
+    category,
+    page,
+    pageSize: 10,
+  });
   const categories = listDoctorCategories();
 
   return (
@@ -12,11 +33,21 @@ export default async function PatientDoctorsPage() {
           Our doctors
         </h1>
         <p className="mt-2 max-w-2xl text-[var(--muted)]">
-          Browse clinicians by category and read about their experience and
-          focus areas.
+          Search clinicians by name or specialty, or browse by category.
         </p>
       </div>
-      <DoctorsDirectory doctors={doctors} categories={categories} />
+      <Suspense fallback={<p className="text-[var(--muted)]">Loading doctors…</p>}>
+        <DoctorsDirectory
+          doctors={result.doctors}
+          categories={categories}
+          total={result.total}
+          page={result.page}
+          pageSize={result.pageSize}
+          totalPages={result.totalPages}
+          initialQuery={query}
+          initialCategory={category}
+        />
+      </Suspense>
     </div>
   );
 }

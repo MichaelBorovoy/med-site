@@ -1,16 +1,14 @@
 import Link from "next/link";
-import { redirect } from "next/navigation";
 import { getSession } from "@/lib/auth";
 import { getDb, listDoctorCategories, listDoctors } from "@/lib/db";
 import { homeForRole } from "@/lib/permissions";
 
+export const dynamic = "force-dynamic";
+
 export default async function HomePage() {
   getDb();
   const session = await getSession();
-
-  if (session) {
-    redirect(homeForRole(session.role));
-  }
+  const portalHref = session ? homeForRole(session.role) : "/login";
 
   const doctors = listDoctors().slice(0, 3);
   const categories = listDoctorCategories();
@@ -29,12 +27,21 @@ export default async function HomePage() {
             >
               Doctors
             </Link>
-            <Link
-              href="/login"
-              className="rounded-md bg-[var(--accent)] px-3 py-1.5 text-sm font-medium text-white hover:bg-[var(--accent-strong)]"
-            >
-              Sign in
-            </Link>
+            {session ? (
+              <Link
+                href={portalHref}
+                className="rounded-md bg-[var(--accent)] px-3 py-1.5 text-sm font-medium text-white hover:bg-[var(--accent-strong)]"
+              >
+                Open {session.role} portal
+              </Link>
+            ) : (
+              <Link
+                href="/login"
+                className="rounded-md bg-[var(--accent)] px-3 py-1.5 text-sm font-medium text-white hover:bg-[var(--accent-strong)]"
+              >
+                Sign in
+              </Link>
+            )}
           </div>
         </div>
       </header>
@@ -46,16 +53,18 @@ export default async function HomePage() {
             className="pointer-events-none absolute inset-0 bg-[linear-gradient(135deg,rgba(15,118,110,0.12),transparent_45%),radial-gradient(700px_320px_at_80%_10%,rgba(22,78,99,0.16),transparent)]"
           />
           <div className="relative mx-auto max-w-6xl">
-            <p className="font-[family-name:var(--font-display)] text-5xl tracking-tight text-[var(--ink)] md:text-6xl">
+            <p className="text-sm uppercase tracking-[0.16em] text-[var(--muted)]">
+              Public guest page
+            </p>
+            <p className="mt-3 font-[family-name:var(--font-display)] text-5xl tracking-tight text-[var(--ink)] md:text-6xl">
               HarborCare
             </p>
             <h1 className="mt-4 max-w-2xl text-2xl text-[var(--ink-soft)] md:text-3xl">
-              Public care information for guests. Secure portals for patients,
-              doctors, coordinators, and admins.
+              Browse clinic and doctor information without signing in.
             </h1>
             <p className="mt-4 max-w-xl text-[var(--muted)]">
-              Guests can browse clinician profiles. Sign in to access the
-              workspace for your role.
+              Guests can explore public care info. Patients, doctors,
+              coordinators, and admins sign in for their private workspaces.
             </p>
             <div className="mt-8 flex flex-wrap gap-3">
               <Link
@@ -65,10 +74,10 @@ export default async function HomePage() {
                 Browse doctors
               </Link>
               <Link
-                href="/login"
+                href={portalHref}
                 className="rounded-lg border border-[var(--line)] bg-white/70 px-4 py-2.5 text-sm font-semibold text-[var(--ink)]"
               >
-                Portal sign in
+                {session ? "Go to your portal" : "Portal sign in"}
               </Link>
             </div>
           </div>
@@ -85,7 +94,7 @@ export default async function HomePage() {
             {categories.map((item) => (
               <Link
                 key={item.category}
-                href="/doctors"
+                href={`/doctors?category=${encodeURIComponent(item.category)}`}
                 className="rounded-full border border-[var(--line)] bg-[var(--panel)] px-3 py-1.5 text-sm text-[var(--ink-soft)]"
               >
                 {item.category} · {item.count}
