@@ -1,10 +1,11 @@
-export type UserRole = "admin" | "patient";
+export type UserRole = "admin" | "patient" | "doctor" | "coordinator";
 
 export type SessionUser = {
   id: number;
   username: string;
   role: UserRole;
   patientId: number | null;
+  doctorId: number | null;
 };
 
 export type UserRow = {
@@ -13,6 +14,7 @@ export type UserRow = {
   password_hash: string;
   role: UserRole;
   patient_id: number | null;
+  doctor_id: number | null;
   created_at: string;
 };
 
@@ -39,6 +41,7 @@ export type MedicalRecordRow = {
   diagnosis: string | null;
   treatment: string | null;
   provider_name: string | null;
+  appointment_id: number | null;
   recorded_at: string;
   created_at: string;
 };
@@ -46,6 +49,7 @@ export type MedicalRecordRow = {
 export type AppointmentRow = {
   id: number;
   patient_id: number;
+  doctor_id: number | null;
   provider_name: string;
   reason: string;
   status: "scheduled" | "completed" | "cancelled";
@@ -91,3 +95,17 @@ export type DoctorRow = {
   created_at: string;
   updated_at: string;
 };
+
+export const ROLE_HOME: Record<UserRole, string> = {
+  admin: "/admin",
+  patient: "/patient",
+  doctor: "/doctor",
+  coordinator: "/coordinator",
+};
+
+export const ALL_ROLES: UserRole[] = [
+  "admin",
+  "patient",
+  "doctor",
+  "coordinator",
+];

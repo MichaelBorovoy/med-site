@@ -3,13 +3,15 @@
 import { FormEvent, useState } from "react";
 import { useRouter } from "next/navigation";
 import { apiClient } from "@/lib/api-client";
+import { ROLE_HOME, type UserRole } from "@/lib/types";
 
 type LoginResponse = {
   user: {
     id: number;
     username: string;
-    role: "admin" | "patient";
+    role: UserRole;
     patientId: number | null;
+    doctorId: number | null;
   };
 };
 
@@ -31,11 +33,7 @@ export function LoginForm() {
         body: JSON.stringify({ username, password }),
       });
 
-      if (data.user.role === "admin") {
-        router.replace("/admin");
-      } else {
-        router.replace("/patient");
-      }
+      router.replace(ROLE_HOME[data.user.role]);
       router.refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to sign in.");

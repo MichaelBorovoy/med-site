@@ -8,10 +8,11 @@ export default async function AdminHomePage() {
     <div className="space-y-8">
       <div>
         <h1 className="font-[family-name:var(--font-display)] text-4xl text-[var(--ink)]">
-          Operations overview
+          Admin console
         </h1>
         <p className="mt-2 max-w-2xl text-[var(--muted)]">
-          Manage patients, medical records, and appointments from one place.
+          Full permissions across patients, doctors, records, appointments, and
+          accounts.
         </p>
       </div>
 
@@ -39,11 +40,11 @@ export default async function AdminHomePage() {
 
       <section className="rounded-2xl border border-[var(--line)] bg-[var(--panel)] p-5">
         <h2 className="font-[family-name:var(--font-display)] text-2xl text-[var(--ink)]">
-          User accounts
+          Role accounts
         </h2>
         <p className="mt-1 text-sm text-[var(--muted)]">
-          Passwords are stored as hashes only. Usernames and passwords are never
-          committed to the repository.
+          Passwords are hashed. Credentials are never committed to the
+          repository.
         </p>
         <div className="mt-4 overflow-x-auto">
           <table className="min-w-full text-left text-sm">
@@ -51,7 +52,7 @@ export default async function AdminHomePage() {
               <tr>
                 <th className="py-2 pr-4 font-medium">Username</th>
                 <th className="py-2 pr-4 font-medium">Role</th>
-                <th className="py-2 pr-4 font-medium">Linked patient</th>
+                <th className="py-2 pr-4 font-medium">Linked profile</th>
                 <th className="py-2 font-medium">Created</th>
               </tr>
             </thead>
@@ -63,7 +64,7 @@ export default async function AdminHomePage() {
                     {user.role}
                   </td>
                   <td className="py-3 pr-4 text-[var(--ink-soft)]">
-                    {user.full_name || "—"}
+                    {user.patient_name || user.doctor_name || "—"}
                   </td>
                   <td className="py-3 text-[var(--muted)]">
                     {new Date(user.created_at).toLocaleString()}

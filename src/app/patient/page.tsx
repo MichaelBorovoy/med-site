@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import { ProfileEditor } from "@/components/patient/ProfileEditor";
 import { requireSession } from "@/lib/auth";
 import {
   getPatient,
@@ -33,8 +34,8 @@ export default async function PatientHomePage() {
           {patient.full_name}
         </h1>
         <p className="mt-3 max-w-2xl text-[var(--ink-soft)]">
-          Review your records, upcoming visits, and active prescriptions in one
-          secure place.
+          You can view only your own records and update your profile contact
+          details.
         </p>
       </section>
 
@@ -136,6 +137,12 @@ export default async function PatientHomePage() {
           </ul>
         </section>
       </div>
+
+      <ProfileEditor
+        phone={patient.phone || ""}
+        allergies={patient.allergies || ""}
+        emergencyContact={patient.emergency_contact || ""}
+      />
     </div>
   );
 }

@@ -4,7 +4,7 @@ import { getDb, getDoctor } from "@/lib/db";
 import { appointmentSchema } from "@/lib/validators";
 
 export async function GET() {
-  const session = await requireSession("admin");
+  const session = await requireSession(["coordinator", "admin"]);
   if (!session) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
@@ -22,7 +22,7 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
-  const session = await requireSession("admin");
+  const session = await requireSession(["coordinator", "admin"]);
   if (!session) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
@@ -40,7 +40,6 @@ export async function POST(request: Request) {
   }
 
   const data = parsed.data;
-  const db = getDb();
   let providerName = data.providerName;
   if (data.doctorId) {
     const doctor = getDoctor(data.doctorId);
@@ -49,37 +48,31 @@ export async function POST(request: Request) {
     }
   }
 
-  try {
-    const result = db
-      .prepare(
-        `INSERT INTO appointments (
-          patient_id, doctor_id, provider_name, reason, status, scheduled_at, notes
-        ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      )
-      .run(
-        data.patientId,
-        data.doctorId || null,
-        providerName,
-        data.reason,
-        data.status,
-        data.scheduledAt,
-        data.notes || null,
-      );
+  const result = getDb()
+    .prepare(
+      `INSERT INTO appointments (
+        patient_id, doctor_id, provider_name, reason, status, scheduled_at, notes
+      ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .run(
+      data.patientId,
+      data.doctorId || null,
+      providerName,
+      data.reason,
+      data.status,
+      data.scheduledAt,
+      data.notes || null,
+    );
 
-    const appointment = db
-      .prepare("SELECT * FROM appointments WHERE id = ?")
-      .get(Number(result.lastInsertRowid));
+  const appointment = getDb()
+    .prepare("SELECT * FROM appointments WHERE id = ?")
+    .get(Number(result.lastInsertRowid));
 
-    return NextResponse.json({ appointment }, { status: 201 });
-  } catch (error) {
-    const message =
-      error instanceof Error ? error.message : "Unable to create appointment.";
-    return NextResponse.json({ error: message }, { status: 400 });
-  }
+  return NextResponse.json({ appointment }, { status: 201 });
 }
 
 export async function PATCH(request: Request) {
-  const session = await requireSession("admin");
+  const session = await requireSession(["coordinator", "admin"]);
   if (!session) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
@@ -96,21 +89,5 @@ export async function PATCH(request: Request) {
     .prepare("UPDATE appointments SET status = ? WHERE id = ?")
     .run(status, id);
 
-  return NextResponse.json({ ok: true });
-}
-
-export async function DELETE(request: Request) {
-  const session = await requireSession("admin");
-  if (!session) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-
-  const { searchParams } = new URL(request.url);
-  const id = Number(searchParams.get("id"));
-  if (!id) {
-    return NextResponse.json({ error: "Missing id" }, { status: 400 });
-  }
-
-  getDb().prepare("DELETE FROM appointments WHERE id = ?").run(id);
   return NextResponse.json({ ok: true });
 }

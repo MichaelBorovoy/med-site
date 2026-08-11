@@ -18,8 +18,15 @@ export const patientSchema = z.object({
   password: z.string().min(8).max(200).optional().or(z.literal("")),
 });
 
+export const patientProfileSchema = z.object({
+  phone: z.string().trim().max(40).optional().or(z.literal("")),
+  allergies: z.string().trim().max(500).optional().or(z.literal("")),
+  emergencyContact: z.string().trim().max(200).optional().or(z.literal("")),
+});
+
 export const recordSchema = z.object({
   patientId: z.coerce.number().int().positive(),
+  appointmentId: z.coerce.number().int().positive().optional().nullable(),
   title: z.string().trim().min(1).max(160),
   recordType: z.string().trim().min(1).max(80),
   summary: z.string().trim().min(1).max(4000),
@@ -31,6 +38,7 @@ export const recordSchema = z.object({
 
 export const appointmentSchema = z.object({
   patientId: z.coerce.number().int().positive(),
+  doctorId: z.coerce.number().int().positive().optional().nullable(),
   providerName: z.string().trim().min(1).max(120),
   reason: z.string().trim().min(1).max(300),
   status: z.enum(["scheduled", "completed", "cancelled"]),
@@ -47,4 +55,12 @@ export const doctorSchema = z.object({
   education: z.string().trim().max(500).optional().or(z.literal("")),
   languages: z.string().trim().max(200).optional().or(z.literal("")),
   acceptingPatients: z.boolean().optional().default(true),
+});
+
+export const userAccountSchema = z.object({
+  username: z.string().trim().min(3).max(80),
+  password: z.string().min(8).max(200),
+  role: z.enum(["admin", "patient", "doctor", "coordinator"]),
+  patientId: z.coerce.number().int().positive().optional().nullable(),
+  doctorId: z.coerce.number().int().positive().optional().nullable(),
 });
