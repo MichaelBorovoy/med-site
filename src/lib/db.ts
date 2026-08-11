@@ -70,10 +70,6 @@ function createSchema(db: Database.Database) {
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
 
-    CREATE INDEX IF NOT EXISTS idx_doctors_clinic_id ON doctors(clinic_id);
-    CREATE INDEX IF NOT EXISTS idx_doctors_category ON doctors(category);
-    CREATE INDEX IF NOT EXISTS idx_doctors_full_name ON doctors(full_name);
-
     CREATE TABLE IF NOT EXISTS users (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       username TEXT NOT NULL UNIQUE,
@@ -168,6 +164,7 @@ function migrateSchema(db: Database.Database) {
     );
   }
 
+  // Indexes must run after clinic_id exists on upgraded databases.
   db.exec(`
     CREATE INDEX IF NOT EXISTS idx_doctors_clinic_id ON doctors(clinic_id);
     CREATE INDEX IF NOT EXISTS idx_doctors_category ON doctors(category);
