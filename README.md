@@ -6,11 +6,19 @@ Role-based medical portal for guests, patients, doctors, coordinators, and admin
 
 | Role | Access |
 |------|--------|
-| **Guest** | Public clinic info and doctor directory (`/`, `/doctors`) |
+| **Guest** | Public home, clinics, and doctor directory (`/`, `/clinics`, `/doctors`) |
 | **Patient** | Own records, appointments, prescriptions; can edit own profile contact fields only |
 | **Doctor** | Assigned appointments; view those patients' documents; create documents from appointments |
 | **Coordinator** | Assist patients with scheduling and appointment status updates |
-| **Admin** | Full management of patients, doctors, records, appointments, and accounts |
+| **Admin** | Full management of patients, clinics, doctors, records, appointments, and accounts |
+
+## Clinics + large doctor catalogs
+
+HarborCare models a clinic network:
+
+- 5 clinics group doctors by location
+- Doctor directory supports clinic filter + category + search + pagination
+- Optional local scale seed: set `DEMO_SCALE_DOCTORS=1000` in `.env.local`
 
 ## Credentials policy
 

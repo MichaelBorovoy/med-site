@@ -4,6 +4,9 @@ import fs from "fs";
 import path from "path";
 import type {
   AppointmentRow,
+  ClinicRow,
+  ClinicSummary,
+  DoctorListItem,
   DoctorRow,
   MedicalRecordRow,
   PatientRow,
@@ -41,9 +44,21 @@ function createSchema(db: Database.Database) {
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
 
+    CREATE TABLE IF NOT EXISTS clinics (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL UNIQUE,
+      city TEXT NOT NULL,
+      address TEXT NOT NULL,
+      phone TEXT,
+      description TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
     CREATE TABLE IF NOT EXISTS doctors (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       full_name TEXT NOT NULL,
+      clinic_id INTEGER REFERENCES clinics(id) ON DELETE SET NULL,
       category TEXT NOT NULL,
       specialty TEXT NOT NULL,
       years_experience INTEGER NOT NULL DEFAULT 0,
@@ -54,6 +69,10 @@ function createSchema(db: Database.Database) {
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
+
+    CREATE INDEX IF NOT EXISTS idx_doctors_clinic_id ON doctors(clinic_id);
+    CREATE INDEX IF NOT EXISTS idx_doctors_category ON doctors(category);
+    CREATE INDEX IF NOT EXISTS idx_doctors_full_name ON doctors(full_name);
 
     CREATE TABLE IF NOT EXISTS users (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -141,6 +160,109 @@ function migrateSchema(db: Database.Database) {
       `ALTER TABLE medical_records ADD COLUMN appointment_id INTEGER REFERENCES appointments(id) ON DELETE SET NULL`,
     );
   }
+
+  const doctorCols = tableColumns(db, "doctors");
+  if (doctorCols.length && !doctorCols.includes("clinic_id")) {
+    db.exec(
+      `ALTER TABLE doctors ADD COLUMN clinic_id INTEGER REFERENCES clinics(id) ON DELETE SET NULL`,
+    );
+  }
+
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_doctors_clinic_id ON doctors(clinic_id);
+    CREATE INDEX IF NOT EXISTS idx_doctors_category ON doctors(category);
+    CREATE INDEX IF NOT EXISTS idx_doctors_full_name ON doctors(full_name);
+  `);
+}
+
+function seedClinics(db: Database.Database) {
+  const seeded = db
+    .prepare("SELECT value FROM meta WHERE key = 'clinics_seeded'")
+    .get() as { value: string } | undefined;
+
+  if (seeded?.value === "1") {
+    assignDoctorsToClinics(db);
+    return;
+  }
+
+  const count = (
+    db.prepare("SELECT COUNT(*) AS count FROM clinics").get() as {
+      count: number;
+    }
+  ).count;
+
+  if (count === 0) {
+    const insert = db.prepare(
+      `INSERT INTO clinics (name, city, address, phone, description)
+       VALUES (?, ?, ?, ?, ?)`,
+    );
+
+    const clinics: Array<[string, string, string, string, string]> = [
+      [
+        "HarborCare Downtown",
+        "Seattle",
+        "120 Pine Street, Seattle, WA",
+        "+1 (206) 555-0101",
+        "Flagship clinic for primary care and specialty referrals.",
+      ],
+      [
+        "HarborCare Lakeside",
+        "Bellevue",
+        "88 Lake Avenue, Bellevue, WA",
+        "+1 (425) 555-0102",
+        "Family medicine and pediatrics for Eastside communities.",
+      ],
+      [
+        "HarborCare Northgate",
+        "Seattle",
+        "401 Northgate Way, Seattle, WA",
+        "+1 (206) 555-0103",
+        "Cardiology and neurology outpatient services.",
+      ],
+      [
+        "HarborCare Southcenter",
+        "Tukwila",
+        "300 Andover Park West, Tukwila, WA",
+        "+1 (206) 555-0104",
+        "Orthopedics and rehabilitation-focused campus.",
+      ],
+      [
+        "HarborCare Westside",
+        "Seattle",
+        "2100 California Avenue SW, Seattle, WA",
+        "+1 (206) 555-0105",
+        "Behavioral health and dermatology clinic.",
+      ],
+    ];
+
+    for (const clinic of clinics) {
+      insert.run(...clinic);
+    }
+  }
+
+  assignDoctorsToClinics(db);
+
+  db.prepare(
+    "INSERT INTO meta (key, value) VALUES ('clinics_seeded', '1') ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+  ).run();
+}
+
+function assignDoctorsToClinics(db: Database.Database) {
+  const clinics = db
+    .prepare("SELECT id FROM clinics ORDER BY id ASC")
+    .all() as Array<{ id: number }>;
+  if (clinics.length === 0) {
+    return;
+  }
+
+  const unassigned = db
+    .prepare("SELECT id FROM doctors WHERE clinic_id IS NULL ORDER BY id ASC")
+    .all() as Array<{ id: number }>;
+
+  const update = db.prepare("UPDATE doctors SET clinic_id = ? WHERE id = ?");
+  unassigned.forEach((doctor, index) => {
+    update.run(clinics[index % clinics.length].id, doctor.id);
+  });
 }
 
 function upsertUser(
@@ -193,11 +315,15 @@ function seedDoctors(db: Database.Database) {
   ).count;
 
   if (count === 0) {
+    const clinics = db
+      .prepare("SELECT id FROM clinics ORDER BY id ASC")
+      .all() as Array<{ id: number }>;
+
     const insert = db.prepare(
       `INSERT INTO doctors (
-        full_name, category, specialty, years_experience,
+        full_name, clinic_id, category, specialty, years_experience,
         experience_summary, education, languages, accepting_patients
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     );
 
     const doctors: Array<
@@ -285,9 +411,10 @@ function seedDoctors(db: Database.Database) {
       ],
     ];
 
-    for (const doctor of doctors) {
-      insert.run(...doctor);
-    }
+    doctors.forEach((doctor, index) => {
+      const clinicId = clinics.length ? clinics[index % clinics.length].id : null;
+      insert.run(doctor[0], clinicId, doctor[1], doctor[2], doctor[3], doctor[4], doctor[5], doctor[6], doctor[7]);
+    });
   }
 
   db.prepare(
@@ -483,8 +610,10 @@ export function getDb() {
   db.pragma("journal_mode = WAL");
   createSchema(db);
   migrateSchema(db);
+  seedClinics(db);
   seedDoctors(db);
   seedFromEnv(db);
+  seedScaleDoctors(db);
   dbInstance = db;
   return db;
 }
@@ -613,6 +742,7 @@ export function listDoctors(category?: string) {
 export function searchDoctors(options?: {
   query?: string;
   category?: string;
+  clinicId?: number | null;
   page?: number;
   pageSize?: number;
 }) {
@@ -621,6 +751,7 @@ export function searchDoctors(options?: {
     options?.category && options.category !== "All"
       ? options.category.trim()
       : "";
+  const clinicId = options?.clinicId && options.clinicId > 0 ? options.clinicId : null;
   const pageSize = Math.min(Math.max(options?.pageSize || 10, 1), 50);
   const page = Math.max(options?.page || 1, 1);
   const offset = (page - 1) * pageSize;
@@ -628,17 +759,22 @@ export function searchDoctors(options?: {
   const where: string[] = [];
   const params: Array<string | number> = [];
 
+  if (clinicId) {
+    where.push("d.clinic_id = ?");
+    params.push(clinicId);
+  }
+
   if (category) {
-    where.push("category = ?");
+    where.push("d.category = ?");
     params.push(category);
   }
 
   if (query) {
     where.push(
-      `(full_name LIKE ? OR specialty LIKE ? OR experience_summary LIKE ? OR education LIKE ? OR languages LIKE ?)`,
+      `(d.full_name LIKE ? OR d.specialty LIKE ? OR d.experience_summary LIKE ? OR d.education LIKE ? OR d.languages LIKE ? OR c.name LIKE ? OR c.city LIKE ?)`,
     );
     const like = `%${query}%`;
-    params.push(like, like, like, like, like);
+    params.push(like, like, like, like, like, like, like);
   }
 
   const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
@@ -646,18 +782,25 @@ export function searchDoctors(options?: {
 
   const total = (
     db
-      .prepare(`SELECT COUNT(*) AS count FROM doctors ${whereSql}`)
+      .prepare(
+        `SELECT COUNT(*) AS count
+         FROM doctors d
+         LEFT JOIN clinics c ON c.id = d.clinic_id
+         ${whereSql}`,
+      )
       .get(...params) as { count: number }
   ).count;
 
   const doctors = db
     .prepare(
-      `SELECT * FROM doctors
+      `SELECT d.*, c.name AS clinic_name, c.city AS clinic_city
+       FROM doctors d
+       LEFT JOIN clinics c ON c.id = d.clinic_id
        ${whereSql}
-       ORDER BY category ASC, full_name ASC
+       ORDER BY c.name ASC, d.category ASC, d.full_name ASC
        LIMIT ? OFFSET ?`,
     )
-    .all(...params, pageSize, offset) as DoctorRow[];
+    .all(...params, pageSize, offset) as DoctorListItem[];
 
   return {
     doctors,
@@ -666,6 +809,87 @@ export function searchDoctors(options?: {
     pageSize,
     totalPages: Math.max(1, Math.ceil(total / pageSize)),
   };
+}
+
+export function listClinics() {
+  return getDb()
+    .prepare(
+      `SELECT c.*, COUNT(d.id) AS doctor_count
+       FROM clinics c
+       LEFT JOIN doctors d ON d.clinic_id = c.id
+       GROUP BY c.id
+       ORDER BY c.name ASC`,
+    )
+    .all() as ClinicSummary[];
+}
+
+export function getClinic(id: number) {
+  return getDb()
+    .prepare("SELECT * FROM clinics WHERE id = ?")
+    .get(id) as ClinicRow | undefined;
+}
+
+function seedScaleDoctors(db: Database.Database) {
+  const raw = process.env.DEMO_SCALE_DOCTORS?.trim();
+  if (!raw) {
+    return;
+  }
+
+  const target = Math.min(Math.max(Number(raw) || 0, 0), 1000);
+  if (target <= 0) {
+    return;
+  }
+
+  const clinics = db
+    .prepare("SELECT id FROM clinics ORDER BY id ASC")
+    .all() as Array<{ id: number }>;
+  if (clinics.length === 0) {
+    return;
+  }
+
+  const current = (
+    db.prepare("SELECT COUNT(*) AS count FROM doctors").get() as {
+      count: number;
+    }
+  ).count;
+
+  if (current >= target) {
+    return;
+  }
+
+  const categories = [
+    "Primary Care",
+    "Cardiology",
+    "Dermatology",
+    "Pediatrics",
+    "Orthopedics",
+    "Mental Health",
+    "Neurology",
+  ];
+
+  const insert = db.prepare(
+    `INSERT INTO doctors (
+      full_name, clinic_id, category, specialty, years_experience,
+      experience_summary, education, languages, accepting_patients
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)`,
+  );
+
+  const tx = db.transaction(() => {
+    for (let i = current + 1; i <= target; i++) {
+      const category = categories[i % categories.length];
+      insert.run(
+        `Dr. Scale ${i}`,
+        clinics[i % clinics.length].id,
+        category,
+        `${category} Specialist`,
+        3 + (i % 25),
+        `Scaled directory profile for doctor ${i} used to validate clinic filters and pagination.`,
+        "MD, Harbor University",
+        "English",
+      );
+    }
+  });
+  tx();
 }
 
 export function getDoctor(id: number) {
@@ -714,6 +938,11 @@ export function getDashboardStats() {
       count: number;
     }
   ).count;
+  const clinics = (
+    db.prepare("SELECT COUNT(*) AS count FROM clinics").get() as {
+      count: number;
+    }
+  ).count;
 
-  return { patients, records, appointments, users, doctors };
+  return { patients, records, appointments, users, doctors, clinics };
 }

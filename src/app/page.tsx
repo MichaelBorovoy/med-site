@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { getSession } from "@/lib/auth";
-import { getDb, listDoctorCategories, listDoctors } from "@/lib/db";
+import { getDb, listClinics, listDoctorCategories, searchDoctors } from "@/lib/db";
 import { homeForRole } from "@/lib/permissions";
 
 export const dynamic = "force-dynamic";
@@ -10,8 +10,9 @@ export default async function HomePage() {
   const session = await getSession();
   const portalHref = session ? homeForRole(session.role) : "/login";
 
-  const doctors = listDoctors().slice(0, 3);
+  const doctors = searchDoctors({ page: 1, pageSize: 3 }).doctors;
   const categories = listDoctorCategories();
+  const clinics = listClinics();
 
   return (
     <div className="min-h-screen">
@@ -21,6 +22,12 @@ export default async function HomePage() {
             HarborCare
           </p>
           <div className="flex items-center gap-3">
+            <Link
+              href="/clinics"
+              className="rounded-md px-3 py-1.5 text-sm text-[var(--ink-soft)] hover:bg-white"
+            >
+              Clinics
+            </Link>
             <Link
               href="/doctors"
               className="rounded-md px-3 py-1.5 text-sm text-[var(--ink-soft)] hover:bg-white"
@@ -60,26 +67,57 @@ export default async function HomePage() {
               HarborCare
             </p>
             <h1 className="mt-4 max-w-2xl text-2xl text-[var(--ink-soft)] md:text-3xl">
-              Browse clinic and doctor information without signing in.
+              Browse clinics and doctors without signing in.
             </h1>
             <p className="mt-4 max-w-xl text-[var(--muted)]">
-              Guests can explore public care info. Patients, doctors,
-              coordinators, and admins sign in for their private workspaces.
+              Guests explore public care info across the clinic network.
+              Patients, doctors, coordinators, and admins sign in for private
+              workspaces.
             </p>
             <div className="mt-8 flex flex-wrap gap-3">
               <Link
-                href="/doctors"
+                href="/clinics"
                 className="rounded-lg bg-[var(--accent)] px-4 py-2.5 text-sm font-semibold text-white hover:bg-[var(--accent-strong)]"
+              >
+                View clinics
+              </Link>
+              <Link
+                href="/doctors"
+                className="rounded-lg border border-[var(--line)] bg-white/70 px-4 py-2.5 text-sm font-semibold text-[var(--ink)]"
               >
                 Browse doctors
               </Link>
-              <Link
-                href={portalHref}
-                className="rounded-lg border border-[var(--line)] bg-white/70 px-4 py-2.5 text-sm font-semibold text-[var(--ink)]"
-              >
-                {session ? "Go to your portal" : "Portal sign in"}
-              </Link>
             </div>
+          </div>
+        </section>
+
+        <section className="mx-auto max-w-6xl px-4 pb-10">
+          <h2 className="font-[family-name:var(--font-display)] text-3xl text-[var(--ink)]">
+            Clinics
+          </h2>
+          <p className="mt-2 text-[var(--muted)]">
+            {clinics.length} locations ·{" "}
+            {clinics.reduce((sum, clinic) => sum + clinic.doctor_count, 0)}{" "}
+            doctors in the network
+          </p>
+          <div className="mt-6 grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+            {clinics.map((clinic) => (
+              <Link
+                key={clinic.id}
+                href={`/doctors?clinic=${clinic.id}`}
+                className="rounded-2xl border border-[var(--line)] bg-[var(--panel)] p-5 transition hover:border-[var(--accent)]/40"
+              >
+                <p className="text-xs uppercase tracking-[0.14em] text-[var(--muted)]">
+                  {clinic.city}
+                </p>
+                <h3 className="mt-1 font-[family-name:var(--font-display)] text-xl text-[var(--ink)]">
+                  {clinic.name}
+                </h3>
+                <p className="mt-2 text-sm text-[var(--ink-soft)]">
+                  {clinic.doctor_count} doctors
+                </p>
+              </Link>
+            ))}
           </div>
         </section>
 
@@ -87,9 +125,6 @@ export default async function HomePage() {
           <h2 className="font-[family-name:var(--font-display)] text-3xl text-[var(--ink)]">
             Care categories
           </h2>
-          <p className="mt-2 text-[var(--muted)]">
-            {categories.length} specialties with clinicians available to review.
-          </p>
           <div className="mt-6 flex flex-wrap gap-2">
             {categories.map((item) => (
               <Link
@@ -109,7 +144,7 @@ export default async function HomePage() {
                 className="rounded-2xl border border-[var(--line)] bg-[var(--panel)] p-5"
               >
                 <p className="text-xs uppercase tracking-[0.14em] text-[var(--muted)]">
-                  {doctor.category}
+                  {doctor.clinic_name || doctor.category}
                 </p>
                 <h3 className="mt-1 font-[family-name:var(--font-display)] text-xl text-[var(--ink)]">
                   {doctor.full_name}

@@ -3,28 +3,32 @@
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useDeferredValue, useEffect, useState, useTransition } from "react";
-import type { DoctorRow } from "@/lib/types";
+import type { ClinicSummary, DoctorListItem } from "@/lib/types";
 
 type CategoryCount = { category: string; count: number };
 
 export function DoctorsDirectory({
   doctors,
   categories,
+  clinics,
   total,
   page,
   pageSize,
   totalPages,
   initialQuery = "",
   initialCategory = "All",
+  initialClinicId = "",
 }: {
-  doctors: DoctorRow[];
+  doctors: DoctorListItem[];
   categories: CategoryCount[];
+  clinics: ClinicSummary[];
   total: number;
   page: number;
   pageSize: number;
   totalPages: number;
   initialQuery?: string;
   initialCategory?: string;
+  initialClinicId?: string;
 }) {
   const router = useRouter();
   const pathname = usePathname();
@@ -39,11 +43,13 @@ export function DoctorsDirectory({
 
   function updateParams(next: {
     category?: string;
+    clinicId?: string;
     q?: string;
     page?: number;
   }) {
     const params = new URLSearchParams(searchParams.toString());
     const category = next.category ?? initialCategory;
+    const clinicId = next.clinicId ?? initialClinicId;
     const q = next.q ?? deferredQuery;
     const nextPage = next.page ?? 1;
 
@@ -51,6 +57,12 @@ export function DoctorsDirectory({
       params.delete("category");
     } else {
       params.set("category", category);
+    }
+
+    if (!clinicId) {
+      params.delete("clinic");
+    } else {
+      params.set("clinic", clinicId);
     }
 
     if (!q.trim()) {
@@ -85,30 +97,58 @@ export function DoctorsDirectory({
 
   const from = total === 0 ? 0 : (page - 1) * pageSize + 1;
   const to = Math.min(page * pageSize, total);
+  const allDoctorsCount = categories.reduce((sum, item) => sum + item.count, 0);
 
   return (
-    <div className="grid gap-8 lg:grid-cols-[220px_1fr]">
-      <aside className="h-fit rounded-2xl border border-[var(--line)] bg-[var(--panel)] p-4">
-        <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[var(--muted)]">
-          Categories
-        </p>
-        <nav className="mt-3 flex flex-row gap-2 overflow-x-auto lg:flex-col lg:overflow-visible">
-          <CategoryButton
-            label="All"
-            count={categories.reduce((sum, item) => sum + item.count, 0)}
-            active={initialCategory === "All"}
-            onClick={() => updateParams({ category: "All", page: 1 })}
-          />
-          {categories.map((item) => (
+    <div className="grid gap-8 lg:grid-cols-[240px_1fr]">
+      <aside className="h-fit space-y-4">
+        <div className="rounded-2xl border border-[var(--line)] bg-[var(--panel)] p-4">
+          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[var(--muted)]">
+            Clinics
+          </p>
+          <nav className="mt-3 flex flex-row gap-2 overflow-x-auto lg:flex-col lg:overflow-visible">
             <CategoryButton
-              key={item.category}
-              label={item.category}
-              count={item.count}
-              active={initialCategory === item.category}
-              onClick={() => updateParams({ category: item.category, page: 1 })}
+              label="All clinics"
+              count={allDoctorsCount}
+              active={!initialClinicId}
+              onClick={() => updateParams({ clinicId: "", page: 1 })}
             />
-          ))}
-        </nav>
+            {clinics.map((clinic) => (
+              <CategoryButton
+                key={clinic.id}
+                label={clinic.name}
+                count={clinic.doctor_count}
+                active={initialClinicId === String(clinic.id)}
+                onClick={() =>
+                  updateParams({ clinicId: String(clinic.id), page: 1 })
+                }
+              />
+            ))}
+          </nav>
+        </div>
+
+        <div className="rounded-2xl border border-[var(--line)] bg-[var(--panel)] p-4">
+          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[var(--muted)]">
+            Categories
+          </p>
+          <nav className="mt-3 flex flex-row gap-2 overflow-x-auto lg:flex-col lg:overflow-visible">
+            <CategoryButton
+              label="All"
+              count={allDoctorsCount}
+              active={initialCategory === "All"}
+              onClick={() => updateParams({ category: "All", page: 1 })}
+            />
+            {categories.map((item) => (
+              <CategoryButton
+                key={item.category}
+                label={item.category}
+                count={item.count}
+                active={initialCategory === item.category}
+                onClick={() => updateParams({ category: item.category, page: 1 })}
+              />
+            ))}
+          </nav>
+        </div>
       </aside>
 
       <div className={`space-y-6 ${isPending ? "opacity-70" : ""}`}>
@@ -118,7 +158,7 @@ export function DoctorsDirectory({
             <input
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="Name, specialty, language…"
+              placeholder="Name, specialty, clinic, city…"
               className="w-full rounded-lg border border-[var(--line)] bg-white/80 px-3 py-2 outline-none ring-[var(--accent)] focus:ring-2"
             />
           </label>
@@ -136,11 +176,15 @@ export function DoctorsDirectory({
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
                   <p className="text-xs uppercase tracking-[0.14em] text-[var(--muted)]">
-                    {doctor.category} · {doctor.specialty}
+                    {doctor.clinic_name || "Unassigned clinic"} · {doctor.category}
                   </p>
                   <h3 className="mt-1 font-[family-name:var(--font-display)] text-2xl text-[var(--ink)]">
                     {doctor.full_name}
                   </h3>
+                  <p className="text-sm text-[var(--ink-soft)]">
+                    {doctor.specialty}
+                    {doctor.clinic_city ? ` · ${doctor.clinic_city}` : ""}
+                  </p>
                 </div>
                 <div className="text-right text-sm">
                   <p className="font-medium text-[var(--ink)]">
@@ -163,23 +207,12 @@ export function DoctorsDirectory({
               <p className="mt-4 text-sm leading-7 text-[var(--ink-soft)]">
                 {doctor.experience_summary}
               </p>
-
-              <dl className="mt-4 grid gap-2 text-sm sm:grid-cols-2">
-                <div>
-                  <dt className="text-[var(--muted)]">Education</dt>
-                  <dd className="text-[var(--ink)]">{doctor.education || "—"}</dd>
-                </div>
-                <div>
-                  <dt className="text-[var(--muted)]">Languages</dt>
-                  <dd className="text-[var(--ink)]">{doctor.languages || "—"}</dd>
-                </div>
-              </dl>
             </article>
           ))}
 
           {doctors.length === 0 ? (
             <p className="rounded-2xl border border-dashed border-[var(--line)] px-4 py-10 text-center text-[var(--muted)]">
-              No doctors match this search.
+              No doctors match this clinic/category search.
             </p>
           ) : null}
         </div>
@@ -209,8 +242,8 @@ export function DoctorsDirectory({
         ) : null}
 
         <p className="text-xs text-[var(--muted)]">
-          Tip: use category filters and search to browse large doctor lists
-          without loading everyone at once.{" "}
+          Built for large catalogs (for example 1000 doctors across 5 clinics):
+          filter by clinic first, then search/paginate.{" "}
           <Link href={pathname} className="text-[var(--accent)] hover:underline">
             Reset filters
           </Link>
@@ -241,7 +274,7 @@ function CategoryButton({
           : "bg-white/60 text-[var(--ink-soft)] hover:bg-white"
       }`}
     >
-      <span>{label}</span>
+      <span className="truncate">{label}</span>
       <span className={active ? "text-white/80" : "text-[var(--muted)]"}>
         {count}
       </span>
