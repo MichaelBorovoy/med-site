@@ -39,19 +39,15 @@ npm run db:reset   # wipe volume + re-apply schema
 
 Health check: open `/api/health` — should return `{ "ok": true }`.
 
-## Production (Supabase)
+## Production (Supabase DB + Hetzner app)
 
 1. Create a project at [supabase.com](https://supabase.com).
 2. In **SQL Editor**, run [`migrations/20260311120000_init.sql`](./migrations/20260311120000_init.sql).
-3. In **Project Settings → Database**, copy the **Transaction pooler** URI.
-4. On the host (or hosting secrets), set:
+3. Bootstrap the Hetzner VPS (`deploy/hetzner/bootstrap.sh`) and put the Supabase pooler URI in `/opt/harborcare/.env` as `DATABASE_URL`.
+4. Add GitHub secrets `HETZNER_HOST`, `HETZNER_USER`, `HETZNER_SSH_KEY`.
+5. Merge to `main` — workflow **Deploy to Hetzner** rsyncs and restarts the stack.
 
-```bash
-DATABASE_URL=postgresql://postgres.[ref]:[password]@aws-0-[region].pooler.supabase.com:6543/postgres
-SESSION_SECRET=...
-ADMIN_USERNAME=...
-ADMIN_PASSWORD=...
-```
+Full steps: [`../deploy/hetzner/README.md`](../deploy/hetzner/README.md).
 
 Do **not** set `DATABASE_SSL=false` in production — SSL is enabled automatically for non-local hosts.
 
