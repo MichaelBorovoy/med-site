@@ -117,6 +117,23 @@ export type ClinicSummary = ClinicRow & {
   doctor_count: number;
 };
 
+export type ServiceRow = {
+  id: number;
+  name: string;
+  specialty: string;
+  description: string;
+  duration_minutes: number | null;
+  clinic_id: number | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type ServiceListItem = ServiceRow & {
+  clinic_name: string | null;
+  doctor_names: string;
+  doctor_ids: string;
+};
+
 export const ROLE_HOME: Record<UserRole, string> = {
   admin: "/admin",
   patient: "/patient",

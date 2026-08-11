@@ -66,6 +66,15 @@ export const clinicSchema = z.object({
   description: z.string().trim().max(2000).optional().or(z.literal("")),
 });
 
+export const serviceSchema = z.object({
+  name: z.string().trim().min(1).max(160),
+  specialty: z.string().trim().min(1).max(80),
+  description: z.string().trim().min(1).max(4000),
+  durationMinutes: z.coerce.number().int().min(5).max(480).optional().nullable(),
+  clinicId: z.coerce.number().int().positive().optional().nullable(),
+  doctorIds: z.array(z.coerce.number().int().positive()).min(1),
+});
+
 export const userAccountSchema = z.object({
   username: z.string().trim().min(3).max(80),
   password: z.string().min(8).max(200),

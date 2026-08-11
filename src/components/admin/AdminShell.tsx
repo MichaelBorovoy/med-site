@@ -6,6 +6,7 @@ const links = [
   { href: "/admin/patients", label: "Patients" },
   { href: "/admin/clinics", label: "Clinics" },
   { href: "/admin/doctors", label: "Doctors" },
+  { href: "/admin/services", label: "Services" },
   { href: "/admin/records", label: "Records" },
   { href: "/admin/appointments", label: "Appointments" },
 ];

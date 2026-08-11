@@ -1,12 +1,12 @@
 import { Suspense } from "react";
 import Link from "next/link";
-import { DoctorsDirectory } from "@/components/doctors/DoctorsDirectory";
+import { ServicesDirectory } from "@/components/services/ServicesDirectory";
 import { getSession } from "@/lib/auth";
 import {
   getDb,
-  listClinics,
-  listDoctorCategories,
-  searchDoctors,
+  listDoctorsForFilter,
+  listServiceSpecialties,
+  searchServices,
 } from "@/lib/db";
 import { homeForRole } from "@/lib/permissions";
 
@@ -14,12 +14,12 @@ export const dynamic = "force-dynamic";
 
 type SearchParams = Promise<{
   q?: string;
-  category?: string;
-  clinic?: string;
+  specialty?: string;
+  doctor?: string;
   page?: string;
 }>;
 
-export default async function PublicDoctorsPage({
+export default async function PublicServicesPage({
   searchParams,
 }: {
   searchParams: SearchParams;
@@ -28,19 +28,22 @@ export default async function PublicDoctorsPage({
   const session = await getSession();
   const params = await searchParams;
   const query = params.q?.trim() || "";
-  const category = params.category?.trim() || "All";
-  const clinicId = Number(params.clinic || "0") || 0;
+  const specialty = params.specialty?.trim() || "All";
+  const doctorId = Number(params.doctor || "0") || 0;
   const page = Number(params.page || "1") || 1;
 
-  const result = searchDoctors({
+  const result = searchServices({
     query,
-    category,
-    clinicId,
+    specialty,
+    doctorId,
     page,
     pageSize: 10,
   });
-  const categories = listDoctorCategories();
-  const clinics = listClinics();
+  const specialties = listServiceSpecialties();
+  const doctors = listDoctorsForFilter({
+    specialty,
+    limit: specialty === "All" ? 100 : 300,
+  });
 
   return (
     <div className="min-h-screen">
@@ -53,11 +56,15 @@ export default async function PublicDoctorsPage({
             >
               HarborCare
             </Link>
-            <p className="text-sm text-[var(--muted)]">
-              Public doctor directory
-            </p>
+            <p className="text-sm text-[var(--muted)]">Services directory</p>
           </div>
           <div className="flex items-center gap-3">
+            <Link
+              href="/doctors"
+              className="rounded-md px-3 py-1.5 text-sm text-[var(--ink-soft)] hover:bg-white"
+            >
+              Doctors
+            </Link>
             <Link
               href="/clinics"
               className="rounded-md px-3 py-1.5 text-sm text-[var(--ink-soft)] hover:bg-white"
@@ -65,20 +72,8 @@ export default async function PublicDoctorsPage({
               Clinics
             </Link>
             <Link
-              href="/services"
-              className="rounded-md px-3 py-1.5 text-sm text-[var(--ink-soft)] hover:bg-white"
-            >
-              Services
-            </Link>
-            <Link
-              href="/"
-              className="rounded-md px-3 py-1.5 text-sm text-[var(--ink-soft)] hover:bg-white"
-            >
-              Home
-            </Link>
-            <Link
               href={session ? homeForRole(session.role) : "/login"}
-              className="rounded-md bg-[var(--accent)] px-3 py-1.5 text-sm font-medium text-white hover:bg-[var(--accent-strong)]"
+              className="rounded-md bg-[var(--accent)] px-3 py-1.5 text-sm font-medium text-white"
             >
               {session ? "Open portal" : "Sign in"}
             </Link>
@@ -88,26 +83,26 @@ export default async function PublicDoctorsPage({
 
       <main className="mx-auto max-w-6xl space-y-6 px-4 py-8">
         <div>
-          <h1 className="font-[family-name:var(--font-display)] text-4xl text-[var(--ink)] md:text-5xl">
-            Meet the care team
+          <h1 className="font-[family-name:var(--font-display)] text-4xl text-[var(--ink)]">
+            Care services
           </h1>
           <p className="mt-2 max-w-2xl text-[var(--muted)]">
-            Browse by clinic and category. Results are paginated for large
-            networks (for example 1000 doctors across 5 clinics).
+            Filter the service catalog by specialty and doctor when there are
+            many offerings.
           </p>
         </div>
-        <Suspense fallback={<p className="text-[var(--muted)]">Loading doctors…</p>}>
-          <DoctorsDirectory
-            doctors={result.doctors}
-            categories={categories}
-            clinics={clinics}
+        <Suspense fallback={<p className="text-[var(--muted)]">Loading services…</p>}>
+          <ServicesDirectory
+            services={result.services}
+            specialties={specialties}
+            doctors={doctors}
             total={result.total}
             page={result.page}
             pageSize={result.pageSize}
             totalPages={result.totalPages}
             initialQuery={query}
-            initialCategory={category}
-            initialClinicId={clinicId ? String(clinicId) : ""}
+            initialSpecialty={specialty}
+            initialDoctorId={doctorId ? String(doctorId) : ""}
           />
         </Suspense>
       </main>
