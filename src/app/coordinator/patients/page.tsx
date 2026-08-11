@@ -1,7 +1,7 @@
 import { listPatients } from "@/lib/db";
 
 export default async function CoordinatorPatientsPage() {
-  const patients = listPatients();
+  const patients = await listPatients();
 
   return (
     <div className="space-y-6">

@@ -20,15 +20,15 @@ export default async function PatientDoctorsPage({
   const clinicId = Number(params.clinic || "0") || 0;
   const page = Number(params.page || "1") || 1;
 
-  const result = searchDoctors({
+  const result = await searchDoctors({
     query,
     category,
     clinicId,
     page,
     pageSize: 10,
   });
-  const categories = listDoctorCategories();
-  const clinics = listClinics();
+  const categories = await listDoctorCategories();
+  const clinics = await listClinics();
 
   return (
     <div className="space-y-6">

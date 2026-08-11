@@ -1,6 +1,11 @@
 import { NextResponse } from "next/server";
 import { requireSession } from "@/lib/auth";
-import { getDb, getDoctor } from "@/lib/db";
+import {
+  createAppointment,
+  deleteAppointment,
+  listAppointmentsWithPatientNames,
+  updateAppointmentStatus,
+} from "@/lib/db";
 import { appointmentSchema } from "@/lib/validators";
 
 export async function GET() {
@@ -9,14 +14,7 @@ export async function GET() {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const appointments = getDb()
-    .prepare(
-      `SELECT a.*, p.full_name AS patient_name
-       FROM appointments a
-       JOIN patients p ON p.id = a.patient_id
-       ORDER BY a.scheduled_at DESC`,
-    )
-    .all();
+  const appointments = await listAppointmentsWithPatientNames();
 
   return NextResponse.json({ appointments });
 }
@@ -40,35 +38,17 @@ export async function POST(request: Request) {
   }
 
   const data = parsed.data;
-  const db = getDb();
-  let providerName = data.providerName;
-  if (data.doctorId) {
-    const doctor = getDoctor(data.doctorId);
-    if (doctor) {
-      providerName = doctor.full_name;
-    }
-  }
 
   try {
-    const result = db
-      .prepare(
-        `INSERT INTO appointments (
-          patient_id, doctor_id, provider_name, reason, status, scheduled_at, notes
-        ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      )
-      .run(
-        data.patientId,
-        data.doctorId || null,
-        providerName,
-        data.reason,
-        data.status,
-        data.scheduledAt,
-        data.notes || null,
-      );
-
-    const appointment = db
-      .prepare("SELECT * FROM appointments WHERE id = ?")
-      .get(Number(result.lastInsertRowid));
+    const appointment = await createAppointment({
+      patientId: data.patientId,
+      doctorId: data.doctorId || null,
+      providerName: data.providerName,
+      reason: data.reason,
+      status: data.status,
+      scheduledAt: data.scheduledAt,
+      notes: data.notes || null,
+    });
 
     return NextResponse.json({ appointment }, { status: 201 });
   } catch (error) {
@@ -92,9 +72,7 @@ export async function PATCH(request: Request) {
     return NextResponse.json({ error: "Invalid update." }, { status: 400 });
   }
 
-  getDb()
-    .prepare("UPDATE appointments SET status = ? WHERE id = ?")
-    .run(status, id);
+  await updateAppointmentStatus(id, status);
 
   return NextResponse.json({ ok: true });
 }
@@ -111,6 +89,6 @@ export async function DELETE(request: Request) {
     return NextResponse.json({ error: "Missing id" }, { status: 400 });
   }
 
-  getDb().prepare("DELETE FROM appointments WHERE id = ?").run(id);
+  await deleteAppointment(id);
   return NextResponse.json({ ok: true });
 }

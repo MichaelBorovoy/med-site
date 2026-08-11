@@ -13,15 +13,15 @@ export async function GET() {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const patient = getPatient(session.patientId);
+  const patient = await getPatient(session.patientId);
   if (!patient) {
     return NextResponse.json({ error: "Patient not found" }, { status: 404 });
   }
 
   return NextResponse.json({
     patient,
-    records: listRecords(session.patientId),
-    appointments: listAppointments(session.patientId),
-    prescriptions: listPrescriptions(session.patientId),
+    records: await listRecords(session.patientId),
+    appointments: await listAppointments(session.patientId),
+    prescriptions: await listPrescriptions(session.patientId),
   });
 }

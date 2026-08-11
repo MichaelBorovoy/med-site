@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireSession } from "@/lib/auth";
-import { getClinic, getDb, listClinics } from "@/lib/db";
+import { createClinic, deleteClinic, listClinics } from "@/lib/db";
 import { clinicSchema } from "@/lib/validators";
 
 export async function GET() {
@@ -9,7 +9,7 @@ export async function GET() {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  return NextResponse.json({ clinics: listClinics() });
+  return NextResponse.json({ clinics: await listClinics() });
 }
 
 export async function POST(request: Request) {
@@ -30,23 +30,15 @@ export async function POST(request: Request) {
   const data = parsed.data;
 
   try {
-    const result = getDb()
-      .prepare(
-        `INSERT INTO clinics (name, city, address, phone, description)
-         VALUES (?, ?, ?, ?, ?)`,
-      )
-      .run(
-        data.name,
-        data.city,
-        data.address,
-        data.phone || null,
-        data.description || null,
-      );
+    const clinic = await createClinic({
+      name: data.name,
+      city: data.city,
+      address: data.address,
+      phone: data.phone || null,
+      description: data.description || null,
+    });
 
-    return NextResponse.json(
-      { clinic: getClinic(Number(result.lastInsertRowid)) },
-      { status: 201 },
-    );
+    return NextResponse.json({ clinic }, { status: 201 });
   } catch (error) {
     const message =
       error instanceof Error ? error.message : "Unable to create clinic.";
@@ -66,6 +58,6 @@ export async function DELETE(request: Request) {
     return NextResponse.json({ error: "Missing id" }, { status: 400 });
   }
 
-  getDb().prepare("DELETE FROM clinics WHERE id = ?").run(id);
+  await deleteClinic(id);
   return NextResponse.json({ ok: true });
 }

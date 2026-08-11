@@ -1,25 +1,14 @@
 import { AssistAppointments } from "@/components/coordinator/AssistAppointments";
-import { getDb, listDoctors, listPatients } from "@/lib/db";
+import {
+  listAppointmentsWithPatientNames,
+  listDoctors,
+  listPatients,
+} from "@/lib/db";
 
 export default async function CoordinatorAppointmentsPage() {
-  const patients = listPatients();
-  const doctors = listDoctors();
-  const appointments = getDb()
-    .prepare(
-      `SELECT a.*, p.full_name AS patient_name
-       FROM appointments a
-       JOIN patients p ON p.id = a.patient_id
-       ORDER BY a.scheduled_at DESC`,
-    )
-    .all() as Array<{
-    id: number;
-    patient_id: number;
-    patient_name: string;
-    provider_name: string;
-    reason: string;
-    status: "scheduled" | "completed" | "cancelled";
-    scheduled_at: string;
-  }>;
+  const patients = await listPatients();
+  const doctors = await listDoctors();
+  const appointments = await listAppointmentsWithPatientNames();
 
   return (
     <div className="space-y-6">

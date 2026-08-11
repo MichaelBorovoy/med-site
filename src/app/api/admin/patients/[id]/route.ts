@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireSession } from "@/lib/auth";
-import { getDb, getPatient } from "@/lib/db";
+import { deletePatient, getPatient, updatePatient } from "@/lib/db";
 import { patientSchema } from "@/lib/validators";
 
 type Params = { params: Promise<{ id: string }> };
@@ -12,7 +12,7 @@ export async function GET(_request: Request, { params }: Params) {
   }
 
   const { id } = await params;
-  const patient = getPatient(Number(id));
+  const patient = await getPatient(Number(id));
   if (!patient) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
@@ -28,7 +28,7 @@ export async function PUT(request: Request, { params }: Params) {
 
   const { id } = await params;
   const patientId = Number(id);
-  const existing = getPatient(patientId);
+  const existing = await getPatient(patientId);
   if (!existing) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
@@ -43,34 +43,20 @@ export async function PUT(request: Request, { params }: Params) {
   }
 
   const data = parsed.data;
-  const db = getDb();
 
   try {
-    db.prepare(
-      `UPDATE patients SET
-        full_name = ?,
-        email = ?,
-        phone = ?,
-        date_of_birth = ?,
-        blood_type = ?,
-        allergies = ?,
-        emergency_contact = ?,
-        notes = ?,
-        updated_at = datetime('now')
-      WHERE id = ?`,
-    ).run(
-      data.fullName,
-      data.email,
-      data.phone || null,
-      data.dateOfBirth,
-      data.bloodType || null,
-      data.allergies || null,
-      data.emergencyContact || null,
-      data.notes || null,
-      patientId,
-    );
+    const patient = await updatePatient(patientId, {
+      fullName: data.fullName,
+      email: data.email,
+      phone: data.phone || null,
+      dateOfBirth: data.dateOfBirth,
+      bloodType: data.bloodType || null,
+      allergies: data.allergies || null,
+      emergencyContact: data.emergencyContact || null,
+      notes: data.notes || null,
+    });
 
-    return NextResponse.json({ patient: getPatient(patientId) });
+    return NextResponse.json({ patient });
   } catch (error) {
     const message =
       error instanceof Error ? error.message : "Unable to update patient.";
@@ -86,11 +72,11 @@ export async function DELETE(_request: Request, { params }: Params) {
 
   const { id } = await params;
   const patientId = Number(id);
-  const existing = getPatient(patientId);
+  const existing = await getPatient(patientId);
   if (!existing) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
 
-  getDb().prepare("DELETE FROM patients WHERE id = ?").run(patientId);
+  await deletePatient(patientId);
   return NextResponse.json({ ok: true });
 }

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireSession } from "@/lib/auth";
-import { getDb, getDoctor, searchDoctors } from "@/lib/db";
+import { createDoctor, deleteDoctor, searchDoctors } from "@/lib/db";
 import { doctorSchema } from "@/lib/validators";
 
 export async function GET(request: Request) {
@@ -10,7 +10,7 @@ export async function GET(request: Request) {
   }
 
   const { searchParams } = new URL(request.url);
-  const result = searchDoctors({
+  const result = await searchDoctors({
     query: searchParams.get("q") || undefined,
     clinicId: Number(searchParams.get("clinic") || "0") || undefined,
     page: Number(searchParams.get("page") || "1") || 1,
@@ -36,32 +36,21 @@ export async function POST(request: Request) {
   }
 
   const data = parsed.data;
-  const db = getDb();
 
   try {
-    const result = db
-      .prepare(
-        `INSERT INTO doctors (
-          full_name, clinic_id, category, specialty, years_experience,
-          experience_summary, education, languages, accepting_patients
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      )
-      .run(
-        data.fullName,
-        data.clinicId,
-        data.category,
-        data.specialty,
-        data.yearsExperience,
-        data.experienceSummary,
-        data.education || null,
-        data.languages || null,
-        data.acceptingPatients === false ? 0 : 1,
-      );
+    const doctor = await createDoctor({
+      fullName: data.fullName,
+      clinicId: data.clinicId,
+      category: data.category,
+      specialty: data.specialty,
+      yearsExperience: data.yearsExperience,
+      experienceSummary: data.experienceSummary,
+      education: data.education || null,
+      languages: data.languages || null,
+      acceptingPatients: data.acceptingPatients !== false,
+    });
 
-    return NextResponse.json(
-      { doctor: getDoctor(Number(result.lastInsertRowid)) },
-      { status: 201 },
-    );
+    return NextResponse.json({ doctor }, { status: 201 });
   } catch (error) {
     const message =
       error instanceof Error ? error.message : "Unable to create doctor.";
@@ -81,6 +70,6 @@ export async function DELETE(request: Request) {
     return NextResponse.json({ error: "Missing id" }, { status: 400 });
   }
 
-  getDb().prepare("DELETE FROM doctors WHERE id = ?").run(id);
+  await deleteDoctor(id);
   return NextResponse.json({ ok: true });
 }

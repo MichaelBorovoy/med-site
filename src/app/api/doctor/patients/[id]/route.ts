@@ -17,22 +17,24 @@ export async function GET(_request: Request, { params }: Params) {
 
   const { id } = await params;
   const patientId = Number(id);
-  if (!doctorCanAccessPatient(session.doctorId, patientId)) {
+  if (!(await doctorCanAccessPatient(session.doctorId, patientId))) {
     return NextResponse.json(
       { error: "You can only view patients with appointments assigned to you." },
       { status: 403 },
     );
   }
 
-  const patient = getPatient(patientId);
+  const patient = await getPatient(patientId);
   if (!patient) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
 
+  const appointments = await listAppointments(patientId);
+
   return NextResponse.json({
     patient,
-    records: listRecords(patientId),
-    appointments: listAppointments(patientId).filter(
+    records: await listRecords(patientId),
+    appointments: appointments.filter(
       (item) => item.doctor_id === session.doctorId,
     ),
   });

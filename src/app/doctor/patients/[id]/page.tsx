@@ -17,16 +17,16 @@ export default async function DoctorPatientPage({ params }: Params) {
 
   const { id } = await params;
   const patientId = Number(id);
-  if (!doctorCanAccessPatient(session.doctorId, patientId)) {
+  if (!(await doctorCanAccessPatient(session.doctorId, patientId))) {
     redirect("/doctor");
   }
 
-  const patient = getPatient(patientId);
+  const patient = await getPatient(patientId);
   if (!patient) {
     notFound();
   }
 
-  const records = listRecords(patientId);
+  const records = await listRecords(patientId);
 
   return (
     <div className="space-y-6">

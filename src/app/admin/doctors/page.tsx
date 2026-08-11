@@ -16,8 +16,8 @@ export default async function AdminDoctorsPage({
   const query = params.q?.trim() || "";
   const clinicId = Number(params.clinic || "0") || 0;
   const page = Number(params.page || "1") || 1;
-  const clinics = listClinics();
-  const result = searchDoctors({
+  const clinics = await listClinics();
+  const result = await searchDoctors({
     query,
     clinicId,
     page,

@@ -1,27 +1,9 @@
 import { RecordsManager } from "@/components/admin/RecordsManager";
-import { getDb, listPatients } from "@/lib/db";
+import { listPatients, listRecordsWithPatientNames } from "@/lib/db";
 
 export default async function AdminRecordsPage() {
-  const patients = listPatients();
-  const records = getDb()
-    .prepare(
-      `SELECT r.*, p.full_name AS patient_name
-       FROM medical_records r
-       JOIN patients p ON p.id = r.patient_id
-       ORDER BY r.recorded_at DESC`,
-    )
-    .all() as Array<{
-    id: number;
-    patient_id: number;
-    patient_name: string;
-    title: string;
-    record_type: string;
-    summary: string;
-    diagnosis: string | null;
-    treatment: string | null;
-    provider_name: string | null;
-    recorded_at: string;
-  }>;
+  const patients = await listPatients();
+  const records = await listRecordsWithPatientNames();
 
   return (
     <div className="space-y-6">

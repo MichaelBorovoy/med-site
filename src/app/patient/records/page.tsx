@@ -8,7 +8,7 @@ export default async function PatientRecordsPage() {
     redirect("/login");
   }
 
-  const records = listRecords(session.patientId);
+  const records = await listRecords(session.patientId);
 
   return (
     <div className="space-y-6">

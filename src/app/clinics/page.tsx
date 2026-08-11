@@ -1,14 +1,14 @@
 import Link from "next/link";
 import { getSession } from "@/lib/auth";
-import { getDb, listClinics } from "@/lib/db";
+import { ensureDb, listClinics } from "@/lib/db";
 import { homeForRole } from "@/lib/permissions";
 
 export const dynamic = "force-dynamic";
 
 export default async function ClinicsPage() {
-  getDb();
+  await ensureDb();
   const session = await getSession();
-  const clinics = listClinics();
+  const clinics = await listClinics();
 
   return (
     <div className="min-h-screen">

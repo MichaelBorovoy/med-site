@@ -24,15 +24,15 @@ export default async function PatientServicesPage({
   const doctorId = Number(params.doctor || "0") || 0;
   const page = Number(params.page || "1") || 1;
 
-  const result = searchServices({
+  const result = await searchServices({
     query,
     specialty,
     doctorId,
     page,
     pageSize: 10,
   });
-  const specialties = listServiceSpecialties();
-  const doctors = listDoctorsForFilter({
+  const specialties = await listServiceSpecialties();
+  const doctors = await listDoctorsForFilter({
     specialty,
     limit: specialty === "All" ? 100 : 300,
   });

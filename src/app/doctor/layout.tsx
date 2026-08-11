@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 import { PortalShell } from "@/components/PortalShell";
 import { requireSession } from "@/lib/auth";
-import { getDb, getDoctor } from "@/lib/db";
+import { ensureDb, getDoctor } from "@/lib/db";
 
 const links = [
   { href: "/doctor", label: "Dashboard" },
@@ -14,13 +14,13 @@ export default async function DoctorLayout({
 }: {
   children: React.ReactNode;
 }) {
-  getDb();
+  await ensureDb();
   const session = await requireSession("doctor");
   if (!session?.doctorId) {
     redirect("/login");
   }
 
-  const doctor = getDoctor(session.doctorId);
+  const doctor = await getDoctor(session.doctorId);
   if (!doctor) {
     redirect("/login");
   }
