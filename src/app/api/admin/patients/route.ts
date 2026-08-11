@@ -1,7 +1,6 @@
-import bcrypt from "bcryptjs";
 import { NextResponse } from "next/server";
 import { requireSession } from "@/lib/auth";
-import { getDb, listPatients } from "@/lib/db";
+import { createPatient, listPatients } from "@/lib/db";
 import { patientSchema } from "@/lib/validators";
 
 export async function GET() {
@@ -10,7 +9,7 @@ export async function GET() {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  return NextResponse.json({ patients: listPatients() });
+  return NextResponse.json({ patients: await listPatients() });
 }
 
 export async function POST(request: Request) {
@@ -29,39 +28,20 @@ export async function POST(request: Request) {
   }
 
   const data = parsed.data;
-  const db = getDb();
 
   try {
-    const result = db
-      .prepare(
-        `INSERT INTO patients (
-          full_name, email, phone, date_of_birth, blood_type,
-          allergies, emergency_contact, notes
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      )
-      .run(
-        data.fullName,
-        data.email,
-        data.phone || null,
-        data.dateOfBirth,
-        data.bloodType || null,
-        data.allergies || null,
-        data.emergencyContact || null,
-        data.notes || null,
-      );
-
-    const patientId = Number(result.lastInsertRowid);
-
-    if (data.username && data.password) {
-      db.prepare(
-        `INSERT INTO users (username, password_hash, role, patient_id)
-         VALUES (?, ?, 'patient', ?)`,
-      ).run(data.username, bcrypt.hashSync(data.password, 12), patientId);
-    }
-
-    const patient = db
-      .prepare("SELECT * FROM patients WHERE id = ?")
-      .get(patientId);
+    const patient = await createPatient({
+      fullName: data.fullName,
+      email: data.email,
+      phone: data.phone || null,
+      dateOfBirth: data.dateOfBirth,
+      bloodType: data.bloodType || null,
+      allergies: data.allergies || null,
+      emergencyContact: data.emergencyContact || null,
+      notes: data.notes || null,
+      username: data.username,
+      password: data.password,
+    });
 
     return NextResponse.json({ patient }, { status: 201 });
   } catch (error) {

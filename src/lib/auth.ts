@@ -56,7 +56,7 @@ export async function verifySessionToken(token: string) {
 }
 
 export async function authenticate(username: string, password: string) {
-  const user = findUserByUsername(username.trim());
+  const user = await findUserByUsername(username.trim());
   if (!user) {
     return null;
   }
@@ -111,7 +111,7 @@ export async function getSession(): Promise<SessionUser | null> {
       return null;
     }
 
-    const fresh = findUserById(session.id);
+    const fresh = await findUserById(session.id);
     if (!fresh) {
       return null;
     }

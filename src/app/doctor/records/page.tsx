@@ -9,7 +9,7 @@ export default async function DoctorRecordsPage() {
     redirect("/login");
   }
 
-  const appointments = listDoctorAppointments(session.doctorId);
+  const appointments = await listDoctorAppointments(session.doctorId);
 
   return (
     <div className="space-y-6">

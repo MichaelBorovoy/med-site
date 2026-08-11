@@ -3,7 +3,7 @@ import Link from "next/link";
 import { DoctorsDirectory } from "@/components/doctors/DoctorsDirectory";
 import { getSession } from "@/lib/auth";
 import {
-  getDb,
+  ensureDb,
   listClinics,
   listDoctorCategories,
   searchDoctors,
@@ -24,7 +24,7 @@ export default async function PublicDoctorsPage({
 }: {
   searchParams: SearchParams;
 }) {
-  getDb();
+  await ensureDb();
   const session = await getSession();
   const params = await searchParams;
   const query = params.q?.trim() || "";
@@ -32,15 +32,15 @@ export default async function PublicDoctorsPage({
   const clinicId = Number(params.clinic || "0") || 0;
   const page = Number(params.page || "1") || 1;
 
-  const result = searchDoctors({
+  const result = await searchDoctors({
     query,
     category,
     clinicId,
     page,
     pageSize: 10,
   });
-  const categories = listDoctorCategories();
-  const clinics = listClinics();
+  const categories = await listDoctorCategories();
+  const clinics = await listClinics();
 
   return (
     <div className="min-h-screen">

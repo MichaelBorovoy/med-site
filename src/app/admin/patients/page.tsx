@@ -2,7 +2,7 @@ import { PatientsManager } from "@/components/admin/PatientsManager";
 import { listPatients } from "@/lib/db";
 
 export default async function AdminPatientsPage() {
-  const patients = listPatients();
+  const patients = await listPatients();
 
   return (
     <div className="space-y-6">

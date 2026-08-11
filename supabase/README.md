@@ -1,0 +1,61 @@
+# Database: local Docker + production Supabase
+
+HarborCare uses **Postgres** everywhere. Same schema, different hosts:
+
+| Environment | Host | How |
+| --- | --- | --- |
+| Local | Docker Compose Postgres | `npm run db:up` |
+| Production | Supabase | Set `DATABASE_URL` to the pooler URI |
+
+Auth stays in the app (JWT cookie + bcrypt). Supabase is the managed DB in prod.
+
+## Local development
+
+```bash
+# 1) Start Postgres (applies supabase/migrations on first boot)
+npm run db:up
+
+# 2) Copy env and keep the local DATABASE_URL
+cp .env.example .env.local
+# Set SESSION_SECRET, ADMIN_USERNAME, ADMIN_PASSWORD, optional demo users
+
+# 3) Run the app
+npm run dev
+```
+
+Default local URL:
+
+```text
+postgresql://harborcare:harborcare@127.0.0.1:5432/harborcare
+```
+
+Useful commands:
+
+```bash
+npm run db:logs    # follow Postgres logs
+npm run db:down    # stop container (keeps data)
+npm run db:reset   # wipe volume + re-apply schema
+```
+
+Health check: open `/api/health` — should return `{ "ok": true }`.
+
+## Production (Supabase DB + Hetzner app)
+
+1. Create a project at [supabase.com](https://supabase.com).
+2. In **SQL Editor**, run [`migrations/20260311120000_init.sql`](./migrations/20260311120000_init.sql).
+3. Bootstrap the Hetzner VPS (`deploy/hetzner/bootstrap.sh`) and put the Supabase pooler URI in `/opt/harborcare/.env` as `DATABASE_URL`.
+4. Add GitHub secrets `HETZNER_HOST`, `HETZNER_USER`, `HETZNER_SSH_KEY`.
+5. Merge to `main` — workflow **Deploy to Hetzner** rsyncs and restarts the stack.
+
+Full steps: [`../deploy/hetzner/README.md`](../deploy/hetzner/README.md).
+
+Do **not** set `DATABASE_SSL=false` in production — SSL is enabled automatically for non-local hosts.
+
+## Schema source of truth
+
+All environments use:
+
+`supabase/migrations/20260311120000_init.sql`
+
+- Local Docker mounts it into `/docker-entrypoint-initdb.d/` (runs once on empty volume).
+- Supabase: paste into SQL Editor (or `npx supabase db push` if you use the CLI).

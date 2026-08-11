@@ -9,7 +9,7 @@ export async function GET() {
   }
 
   return NextResponse.json({
-    stats: getDashboardStats(),
-    users: listUsers(),
+    stats: await getDashboardStats(),
+    users: await listUsers(),
   });
 }

@@ -15,4 +15,3 @@ coverage
 .cursor
 *.md
 npm-debug.log*
-README.md

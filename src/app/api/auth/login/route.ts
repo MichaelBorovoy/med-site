@@ -1,11 +1,11 @@
 import { NextResponse } from "next/server";
 import { authenticate, setSessionCookie } from "@/lib/auth";
-import { getDb } from "@/lib/db";
+import { ensureDb } from "@/lib/db";
 import { loginSchema } from "@/lib/validators";
 
 export async function POST(request: Request) {
   try {
-    getDb();
+    await ensureDb();
     const body = await request.json();
     const parsed = loginSchema.safeParse(body);
 

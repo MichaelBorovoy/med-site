@@ -9,6 +9,6 @@ export async function GET() {
   }
 
   return NextResponse.json({
-    appointments: listDoctorAppointments(session.doctorId),
+    appointments: await listDoctorAppointments(session.doctorId),
   });
 }

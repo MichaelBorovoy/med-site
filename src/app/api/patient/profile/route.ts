@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireSession } from "@/lib/auth";
-import { getDb, getPatient } from "@/lib/db";
+import { getPatient, updatePatientProfile } from "@/lib/db";
 import { patientProfileSchema } from "@/lib/validators";
 
 export async function GET() {
@@ -9,7 +9,7 @@ export async function GET() {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const patient = getPatient(session.patientId);
+  const patient = await getPatient(session.patientId);
   if (!patient) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
@@ -33,21 +33,11 @@ export async function PATCH(request: Request) {
   }
 
   const data = parsed.data;
-  getDb()
-    .prepare(
-      `UPDATE patients SET
-        phone = ?,
-        allergies = ?,
-        emergency_contact = ?,
-        updated_at = datetime('now')
-      WHERE id = ?`,
-    )
-    .run(
-      data.phone || null,
-      data.allergies || null,
-      data.emergencyContact || null,
-      session.patientId,
-    );
+  const patient = await updatePatientProfile(session.patientId, {
+    phone: data.phone || null,
+    allergies: data.allergies || null,
+    emergencyContact: data.emergencyContact || null,
+  });
 
-  return NextResponse.json({ patient: getPatient(session.patientId) });
+  return NextResponse.json({ patient });
 }

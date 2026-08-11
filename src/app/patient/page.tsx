@@ -14,14 +14,14 @@ export default async function PatientHomePage() {
     redirect("/login");
   }
 
-  const patient = getPatient(session.patientId);
+  const patient = await getPatient(session.patientId);
   if (!patient) {
     redirect("/login");
   }
 
-  const records = listRecords(session.patientId);
-  const appointments = listAppointments(session.patientId);
-  const prescriptions = listPrescriptions(session.patientId);
+  const records = await listRecords(session.patientId);
+  const appointments = await listAppointments(session.patientId);
+  const prescriptions = await listPrescriptions(session.patientId);
   const nextAppointment = appointments.find((item) => item.status === "scheduled");
 
   return (

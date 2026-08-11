@@ -1,51 +1,33 @@
+# Local development database only (not used on Hetzner).
+# Production: Supabase + docker-compose.prod.yml (see deploy/hetzner/README.md).
+#
+#   npm run db:up      # start Postgres
+#   npm run db:down    # stop
+#   npm run db:reset   # wipe volume and re-apply schema
+
 services:
-  app:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    image: harborcare-app:latest
+  db:
+    image: postgres:16-alpine
+    container_name: harborcare-postgres
     restart: unless-stopped
-    env_file:
-      - .env
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
     environment:
-      DATA_DIR: /app/data
-      PORT: 3000
-      HOSTNAME: 0.0.0.0
+      POSTGRES_USER: ${POSTGRES_USER:-harborcare}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-harborcare}
+      POSTGRES_DB: ${POSTGRES_DB:-harborcare}
     volumes:
-      - ./data:/app/data
-    expose:
-      - "3000"
+      - harborcare_pg_data:/var/lib/postgresql/data
+      - ./supabase/migrations/20260311120000_init.sql:/docker-entrypoint-initdb.d/01_init.sql:ro
     healthcheck:
       test:
         [
-          "CMD",
-          "node",
-          "-e",
-          "fetch('http://127.0.0.1:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+          "CMD-SHELL",
+          "pg_isready -U ${POSTGRES_USER:-harborcare} -d ${POSTGRES_DB:-harborcare}",
         ]
-      interval: 30s
+      interval: 5s
       timeout: 5s
-      retries: 3
-      start_period: 40s
-
-  caddy:
-    image: caddy:2.9-alpine
-    restart: unless-stopped
-    depends_on:
-      app:
-        condition: service_started
-    ports:
-      - "80:80"
-      - "443:443"
-      - "443:443/udp"
-    environment:
-      DOMAIN: ${DOMAIN:?Set DOMAIN in .env to your hostname}
-      ACME_EMAIL: ${ACME_EMAIL:-admin@example.com}
-    volumes:
-      - ./deploy/hetzner/Caddyfile:/etc/caddy/Caddyfile:ro
-      - caddy_data:/data
-      - caddy_config:/config
+      retries: 10
 
 volumes:
-  caddy_data:
-  caddy_config:
+  harborcare_pg_data:

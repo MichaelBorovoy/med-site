@@ -1,20 +1,20 @@
 import { redirect } from "next/navigation";
 import { PatientShell } from "@/components/patient/PatientShell";
 import { requireSession } from "@/lib/auth";
-import { getDb, getPatient } from "@/lib/db";
+import { ensureDb, getPatient } from "@/lib/db";
 
 export default async function PatientLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
-  getDb();
+  await ensureDb();
   const session = await requireSession("patient");
   if (!session || !session.patientId) {
     redirect("/login");
   }
 
-  const patient = getPatient(session.patientId);
+  const patient = await getPatient(session.patientId);
   if (!patient) {
     redirect("/login");
   }

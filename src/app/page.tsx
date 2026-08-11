@@ -1,18 +1,23 @@
 import Link from "next/link";
 import { getSession } from "@/lib/auth";
-import { getDb, listClinics, listDoctorCategories, searchDoctors } from "@/lib/db";
+import {
+  ensureDb,
+  listClinics,
+  listDoctorCategories,
+  searchDoctors,
+} from "@/lib/db";
 import { homeForRole } from "@/lib/permissions";
 
 export const dynamic = "force-dynamic";
 
 export default async function HomePage() {
-  getDb();
+  await ensureDb();
   const session = await getSession();
   const portalHref = session ? homeForRole(session.role) : "/login";
 
-  const doctors = searchDoctors({ page: 1, pageSize: 3 }).doctors;
-  const categories = listDoctorCategories();
-  const clinics = listClinics();
+  const { doctors } = await searchDoctors({ page: 1, pageSize: 3 });
+  const categories = await listDoctorCategories();
+  const clinics = await listClinics();
 
   return (
     <div className="min-h-screen">

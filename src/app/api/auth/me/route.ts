@@ -1,10 +1,10 @@
 import { NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
-import { getDb } from "@/lib/db";
+import { ensureDb } from "@/lib/db";
 
 export async function GET() {
   try {
-    getDb();
+    await ensureDb();
     const session = await getSession();
     if (!session) {
       return NextResponse.json({ user: null }, { status: 401 });

@@ -1,8 +1,8 @@
 import { getDashboardStats, listPatients } from "@/lib/db";
 
 export default async function CoordinatorHomePage() {
-  const stats = getDashboardStats();
-  const patients = listPatients().slice(0, 5);
+  const stats = await getDashboardStats();
+  const patients = (await listPatients()).slice(0, 5);
 
   return (
     <div className="space-y-8">

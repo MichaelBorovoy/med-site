@@ -1,8 +1,8 @@
 import { getDashboardStats, listUsers } from "@/lib/db";
 
 export default async function AdminHomePage() {
-  const stats = getDashboardStats();
-  const users = listUsers();
+  const stats = await getDashboardStats();
+  const users = await listUsers();
 
   return (
     <div className="space-y-8">

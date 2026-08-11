@@ -1,15 +1,15 @@
 import { NextResponse } from "next/server";
-import { getDb } from "@/lib/db";
-
-export const dynamic = "force-dynamic";
+import { ensureDb } from "@/lib/db";
+import { getSql } from "@/lib/sql";
 
 export async function GET() {
   try {
-    getDb().prepare("SELECT 1 AS ok").get();
+    await ensureDb();
+    await getSql()`SELECT 1`;
     return NextResponse.json({ ok: true });
   } catch (error) {
     const message =
-      error instanceof Error ? error.message : "Database unavailable";
+      error instanceof Error ? error.message : "Database health check failed.";
     return NextResponse.json({ ok: false, error: message }, { status: 503 });
   }
 }

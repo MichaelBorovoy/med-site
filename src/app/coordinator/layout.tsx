@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 import { PortalShell } from "@/components/PortalShell";
 import { requireSession } from "@/lib/auth";
-import { getDb } from "@/lib/db";
+import { ensureDb } from "@/lib/db";
 
 const links = [
   { href: "/coordinator", label: "Overview" },
@@ -14,7 +14,7 @@ export default async function CoordinatorLayout({
 }: {
   children: React.ReactNode;
 }) {
-  getDb();
+  await ensureDb();
   const session = await requireSession("coordinator");
   if (!session) {
     redirect("/login");

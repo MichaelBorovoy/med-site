@@ -9,8 +9,8 @@ export default async function DoctorHomePage() {
     redirect("/login");
   }
 
-  const doctor = getDoctor(session.doctorId);
-  const appointments = listDoctorAppointments(session.doctorId);
+  const doctor = await getDoctor(session.doctorId);
+  const appointments = await listDoctorAppointments(session.doctorId);
   const upcoming = appointments.filter((item) => item.status === "scheduled");
 
   return (

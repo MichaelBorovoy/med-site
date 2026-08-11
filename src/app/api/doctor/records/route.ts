@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server";
 import { requireSession } from "@/lib/auth";
 import {
+  createRecord,
   doctorCanAccessPatient,
-  getDb,
+  findAppointmentForDoctorPatient,
   getDoctor,
   getPatient,
 } from "@/lib/db";
@@ -24,7 +25,7 @@ export async function POST(request: Request) {
   }
 
   const data = parsed.data;
-  if (!doctorCanAccessPatient(session.doctorId, data.patientId)) {
+  if (!(await doctorCanAccessPatient(session.doctorId, data.patientId))) {
     return NextResponse.json(
       {
         error:
@@ -35,16 +36,13 @@ export async function POST(request: Request) {
   }
 
   if (data.appointmentId) {
-    const appointment = getDb()
-      .prepare(
-        `SELECT id FROM appointments
-         WHERE id = ? AND doctor_id = ? AND patient_id = ?`,
-      )
-      .get(data.appointmentId, session.doctorId, data.patientId) as
-      | { id: number }
-      | undefined;
+    const appointmentId = await findAppointmentForDoctorPatient(
+      data.appointmentId,
+      session.doctorId,
+      data.patientId,
+    );
 
-    if (!appointment) {
+    if (!appointmentId) {
       return NextResponse.json(
         { error: "Appointment not found for this doctor and patient." },
         { status: 400 },
@@ -52,34 +50,23 @@ export async function POST(request: Request) {
     }
   }
 
-  const doctor = getDoctor(session.doctorId);
-  const patient = getPatient(data.patientId);
+  const doctor = await getDoctor(session.doctorId);
+  const patient = await getPatient(data.patientId);
   if (!patient) {
     return NextResponse.json({ error: "Patient not found" }, { status: 404 });
   }
 
-  const result = getDb()
-    .prepare(
-      `INSERT INTO medical_records (
-        patient_id, appointment_id, title, record_type, summary, diagnosis,
-        treatment, provider_name, recorded_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    )
-    .run(
-      data.patientId,
-      data.appointmentId || null,
-      data.title,
-      data.recordType,
-      data.summary,
-      data.diagnosis || null,
-      data.treatment || null,
-      data.providerName || doctor?.full_name || null,
-      data.recordedAt,
-    );
-
-  const record = getDb()
-    .prepare("SELECT * FROM medical_records WHERE id = ?")
-    .get(Number(result.lastInsertRowid));
+  const record = await createRecord({
+    patientId: data.patientId,
+    appointmentId: data.appointmentId || null,
+    title: data.title,
+    recordType: data.recordType,
+    summary: data.summary,
+    diagnosis: data.diagnosis || null,
+    treatment: data.treatment || null,
+    providerName: data.providerName || doctor?.full_name || null,
+    recordedAt: data.recordedAt,
+  });
 
   return NextResponse.json({ record }, { status: 201 });
 }

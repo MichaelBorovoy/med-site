@@ -2,11 +2,11 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { LoginForm } from "@/components/LoginForm";
 import { getSession } from "@/lib/auth";
-import { getDb } from "@/lib/db";
+import { ensureDb } from "@/lib/db";
 import { homeForRole } from "@/lib/permissions";
 
 export default async function LoginPage() {
-  getDb();
+  await ensureDb();
   const session = await getSession();
 
   if (session) {

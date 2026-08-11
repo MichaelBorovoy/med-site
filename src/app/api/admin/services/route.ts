@@ -16,7 +16,7 @@ export async function GET() {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  return NextResponse.json({ services: listServices() });
+  return NextResponse.json({ services: await listServices() });
 }
 
 export async function POST(request: NextRequest) {
@@ -34,8 +34,11 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const id = createService(parsed.data);
-  return NextResponse.json({ service: getServiceById(id) }, { status: 201 });
+  const id = await createService(parsed.data);
+  return NextResponse.json(
+    { service: await getServiceById(id) },
+    { status: 201 },
+  );
 }
 
 export async function PUT(request: NextRequest) {
@@ -58,13 +61,13 @@ export async function PUT(request: NextRequest) {
     );
   }
 
-  const existing = getServiceById(id);
+  const existing = await getServiceById(id);
   if (!existing) {
     return NextResponse.json({ error: "Service not found" }, { status: 404 });
   }
 
-  updateService(id, parsed.data);
-  return NextResponse.json({ service: getServiceById(id) });
+  await updateService(id, parsed.data);
+  return NextResponse.json({ service: await getServiceById(id) });
 }
 
 export async function DELETE(request: NextRequest) {
@@ -78,6 +81,6 @@ export async function DELETE(request: NextRequest) {
     return NextResponse.json({ error: "Service id is required" }, { status: 400 });
   }
 
-  deleteService(id);
+  await deleteService(id);
   return NextResponse.json({ ok: true });
 }

@@ -2,7 +2,7 @@ import { ClinicsManager } from "@/components/admin/ClinicsManager";
 import { listClinics } from "@/lib/db";
 
 export default async function AdminClinicsPage() {
-  const clinics = listClinics();
+  const clinics = await listClinics();
 
   return (
     <div className="space-y-6">

@@ -65,4 +65,4 @@ jobs:
           set -euo pipefail
           PORT="${HETZNER_SSH_PORT:-22}"
           ssh -p "${PORT}" "${HETZNER_USER}@${HETZNER_HOST}" \
-            'chmod +x /opt/harborcare/deploy/hetzner/deploy.sh && /opt/harborcare/deploy/hetzner/deploy.sh'
+            'chmod +x /opt/harborcare/deploy/hetzner/*.sh && /opt/harborcare/deploy/hetzner/deploy.sh'
