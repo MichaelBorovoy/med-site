@@ -65,3 +65,29 @@ export type PrescriptionRow = {
   ends_on: string | null;
   created_at: string;
 };
+
+export const DOCTOR_CATEGORIES = [
+  "Primary Care",
+  "Cardiology",
+  "Dermatology",
+  "Pediatrics",
+  "Orthopedics",
+  "Mental Health",
+  "Neurology",
+] as const;
+
+export type DoctorCategory = (typeof DOCTOR_CATEGORIES)[number] | string;
+
+export type DoctorRow = {
+  id: number;
+  full_name: string;
+  category: string;
+  specialty: string;
+  years_experience: number;
+  experience_summary: string;
+  education: string | null;
+  languages: string | null;
+  accepting_patients: number;
+  created_at: string;
+  updated_at: string;
+};

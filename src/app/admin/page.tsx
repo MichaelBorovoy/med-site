@@ -15,10 +15,11 @@ export default async function AdminHomePage() {
         </p>
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
         {(
           [
             ["Patients", stats.patients],
+            ["Doctors", stats.doctors],
             ["Records", stats.records],
             ["Scheduled", stats.appointments],
             ["Accounts", stats.users],

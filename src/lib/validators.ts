@@ -37,3 +37,14 @@ export const appointmentSchema = z.object({
   scheduledAt: z.string().trim().min(4).max(64),
   notes: z.string().trim().max(1000).optional().or(z.literal("")),
 });
+
+export const doctorSchema = z.object({
+  fullName: z.string().trim().min(1).max(120),
+  category: z.string().trim().min(1).max(80),
+  specialty: z.string().trim().min(1).max(120),
+  yearsExperience: z.coerce.number().int().min(0).max(80),
+  experienceSummary: z.string().trim().min(1).max(4000),
+  education: z.string().trim().max(500).optional().or(z.literal("")),
+  languages: z.string().trim().max(200).optional().or(z.literal("")),
+  acceptingPatients: z.boolean().optional().default(true),
+});

@@ -4,6 +4,7 @@ import fs from "fs";
 import path from "path";
 import type {
   AppointmentRow,
+  DoctorRow,
   MedicalRecordRow,
   PatientRow,
   PrescriptionRow,
@@ -78,11 +79,141 @@ function createSchema(db: Database.Database) {
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
 
+    CREATE TABLE IF NOT EXISTS doctors (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      full_name TEXT NOT NULL,
+      category TEXT NOT NULL,
+      specialty TEXT NOT NULL,
+      years_experience INTEGER NOT NULL DEFAULT 0,
+      experience_summary TEXT NOT NULL,
+      education TEXT,
+      languages TEXT,
+      accepting_patients INTEGER NOT NULL DEFAULT 1,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
     CREATE TABLE IF NOT EXISTS meta (
       key TEXT PRIMARY KEY,
       value TEXT NOT NULL
     );
   `);
+}
+
+function seedDoctors(db: Database.Database) {
+  const seeded = db
+    .prepare("SELECT value FROM meta WHERE key = 'doctors_seeded'")
+    .get() as { value: string } | undefined;
+
+  if (seeded?.value === "1") {
+    return;
+  }
+
+  const count = (
+    db.prepare("SELECT COUNT(*) AS count FROM doctors").get() as {
+      count: number;
+    }
+  ).count;
+
+  if (count === 0) {
+    const insert = db.prepare(
+      `INSERT INTO doctors (
+        full_name, category, specialty, years_experience,
+        experience_summary, education, languages, accepting_patients
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    );
+
+    const doctors: Array<[string, string, string, number, string, string, string, number]> = [
+      [
+        "Dr. Maya Chen",
+        "Primary Care",
+        "Family Medicine",
+        14,
+        "Leads comprehensive adult and family wellness programs, with a focus on preventive screening and long-term chronic disease management. Previously built a community clinic partnership that improved annual checkup completion for underserved patients.",
+        "MD, University of Washington",
+        "English, Mandarin",
+        1,
+      ],
+      [
+        "Dr. Omar Hassan",
+        "Cardiology",
+        "Interventional Cardiology",
+        18,
+        "Specializes in coronary artery disease and catheter-based interventions. Directed a regional chest-pain pathway that shortened door-to-treatment times and continues to mentor fellows in advanced cardiac imaging.",
+        "MD, Johns Hopkins University",
+        "English, Arabic",
+        1,
+      ],
+      [
+        "Dr. Elena Brooks",
+        "Cardiology",
+        "Heart Failure",
+        11,
+        "Manages complex heart-failure caseloads and coordinates multidisciplinary care teams. Experience includes remote monitoring programs that reduced avoidable readmissions for high-risk patients.",
+        "MD, Emory University",
+        "English, Spanish",
+        1,
+      ],
+      [
+        "Dr. Priya Nair",
+        "Dermatology",
+        "Medical Dermatology",
+        9,
+        "Treats inflammatory skin conditions and early skin-cancer detection. Developed patient education clinics that improved adherence for eczema and psoriasis treatment plans.",
+        "MD, UCLA",
+        "English, Hindi",
+        1,
+      ],
+      [
+        "Dr. Luis Ortega",
+        "Pediatrics",
+        "General Pediatrics",
+        16,
+        "Provides newborn through adolescent care with emphasis on developmental screening and asthma education. Spent several years in school-based health programs supporting families with limited access to specialists.",
+        "MD, University of Michigan",
+        "English, Spanish",
+        1,
+      ],
+      [
+        "Dr. Hannah Park",
+        "Orthopedics",
+        "Sports Medicine",
+        12,
+        "Focuses on joint preservation, injury recovery, and return-to-activity planning for athletes and active adults. Collaborated with physical therapy teams on evidence-based rehabilitation pathways after ACL repair.",
+        "MD, Northwestern University",
+        "English, Korean",
+        0,
+      ],
+      [
+        "Dr. Jordan Blake",
+        "Mental Health",
+        "Psychiatry",
+        13,
+        "Supports adults with anxiety, depression, and trauma-related conditions using collaborative medication management and therapy referrals. Experience includes outpatient intensive programs and workplace mental-health consultations.",
+        "MD, Columbia University",
+        "English",
+        1,
+      ],
+      [
+        "Dr. Sophia Grant",
+        "Neurology",
+        "Headache & Migraine",
+        10,
+        "Evaluates migraine, neuropathy, and seizure disorders with a practical focus on lifestyle and medication strategies. Built a headache clinic protocol that standardized follow-up and rescue-plan counseling.",
+        "MD, Duke University",
+        "English, French",
+        1,
+      ],
+    ];
+
+    for (const doctor of doctors) {
+      insert.run(...doctor);
+    }
+  }
+
+  db.prepare(
+    "INSERT INTO meta (key, value) VALUES ('doctors_seeded', '1') ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+  ).run();
 }
 
 function seedFromEnv(db: Database.Database) {
@@ -235,6 +366,7 @@ export function getDb() {
   db.pragma("journal_mode = WAL");
   createSchema(db);
   seedFromEnv(db);
+  seedDoctors(db);
   dbInstance = db;
   return db;
 }
@@ -317,6 +449,57 @@ export function listUsers() {
   }>;
 }
 
+export function listDoctors(category?: string) {
+  if (category && category !== "All") {
+    return getDb()
+      .prepare(
+        `SELECT * FROM doctors
+         WHERE category = ?
+         ORDER BY category ASC, full_name ASC`,
+      )
+      .all(category) as DoctorRow[];
+  }
+
+  return getDb()
+    .prepare("SELECT * FROM doctors ORDER BY category ASC, full_name ASC")
+    .all() as DoctorRow[];
+}
+
+export function getDoctor(id: number) {
+  return getDb()
+    .prepare("SELECT * FROM doctors WHERE id = ?")
+    .get(id) as DoctorRow | undefined;
+}
+
+export function listDoctorCategories() {
+  return (
+    getDb()
+      .prepare(
+        `SELECT category, COUNT(*) AS count
+         FROM doctors
+         GROUP BY category
+         ORDER BY category ASC`,
+      )
+      .all() as Array<{ category: string; count: number }>
+  );
+}
+
+export function getDoctorsByCategory() {
+  const doctors = listDoctors();
+  const grouped = new Map<string, DoctorRow[]>();
+
+  for (const doctor of doctors) {
+    const current = grouped.get(doctor.category) || [];
+    current.push(doctor);
+    grouped.set(doctor.category, current);
+  }
+
+  return Array.from(grouped.entries()).map(([category, items]) => ({
+    category,
+    doctors: items,
+  }));
+}
+
 export function getDashboardStats() {
   const db = getDb();
   const patients = (
@@ -341,6 +524,11 @@ export function getDashboardStats() {
       count: number;
     }
   ).count;
+  const doctors = (
+    db.prepare("SELECT COUNT(*) AS count FROM doctors").get() as {
+      count: number;
+    }
+  ).count;
 
-  return { patients, records, appointments, users };
+  return { patients, records, appointments, users, doctors };
 }

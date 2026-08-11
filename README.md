@@ -5,7 +5,8 @@ Secure patient portal for viewing medical records, plus an admin console for man
 ## Features
 
 - Patient portal: profile, medical records, appointments, prescriptions
-- Admin panel: create/manage patients, records, appointments, and view accounts
+- Doctor directory: browse clinicians by category with experience descriptions
+- Admin panel: create/manage patients, doctors, records, appointments, and view accounts
 - Session auth with HTTP-only cookies and role-based access
 - Passwords stored as bcrypt hashes only
 - **Usernames and passwords are never committed to the repository**

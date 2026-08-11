@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import { LoginForm } from "@/components/LoginForm";
 import { getSession } from "@/lib/auth";
@@ -59,6 +60,15 @@ export default async function LoginPage() {
           <div className="mt-8">
             <LoginForm />
           </div>
+          <p className="mt-6 text-sm text-[var(--muted)]">
+            Looking for a clinician?{" "}
+            <Link
+              href="/doctors"
+              className="font-medium text-[var(--accent)] hover:underline"
+            >
+              Browse doctors by category
+            </Link>
+          </p>
         </section>
       </div>
     </div>
