@@ -11,6 +11,8 @@ import type {
   MedicalRecordRow,
   PatientRow,
   PrescriptionRow,
+  ServiceListItem,
+  ServiceRow,
   UserRow,
   UserRole,
 } from "@/lib/types";
@@ -118,6 +120,23 @@ function createSchema(db: Database.Database) {
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
 
+    CREATE TABLE IF NOT EXISTS services (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL,
+      specialty TEXT NOT NULL,
+      description TEXT NOT NULL,
+      duration_minutes INTEGER,
+      clinic_id INTEGER REFERENCES clinics(id) ON DELETE SET NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS service_doctors (
+      service_id INTEGER NOT NULL REFERENCES services(id) ON DELETE CASCADE,
+      doctor_id INTEGER NOT NULL REFERENCES doctors(id) ON DELETE CASCADE,
+      PRIMARY KEY (service_id, doctor_id)
+    );
+
     CREATE TABLE IF NOT EXISTS meta (
       key TEXT PRIMARY KEY,
       value TEXT NOT NULL
@@ -169,6 +188,9 @@ function migrateSchema(db: Database.Database) {
     CREATE INDEX IF NOT EXISTS idx_doctors_clinic_id ON doctors(clinic_id);
     CREATE INDEX IF NOT EXISTS idx_doctors_category ON doctors(category);
     CREATE INDEX IF NOT EXISTS idx_doctors_full_name ON doctors(full_name);
+    CREATE INDEX IF NOT EXISTS idx_services_specialty ON services(specialty);
+    CREATE INDEX IF NOT EXISTS idx_services_clinic_id ON services(clinic_id);
+    CREATE INDEX IF NOT EXISTS idx_service_doctors_doctor_id ON service_doctors(doctor_id);
   `);
 }
 
@@ -611,6 +633,7 @@ export function getDb() {
   seedDoctors(db);
   seedFromEnv(db);
   seedScaleDoctors(db);
+  seedServices(db);
   dbInstance = db;
   return db;
 }
@@ -906,6 +929,446 @@ export function listDoctorCategories() {
     .all() as Array<{ category: string; count: number }>;
 }
 
+
+function seedServices(db: Database.Database) {
+  const seeded = db
+    .prepare("SELECT value FROM meta WHERE key = 'services_seeded'")
+    .get() as { value: string } | undefined;
+
+  if (seeded?.value === "1") {
+    return;
+  }
+
+  const count = (
+    db.prepare("SELECT COUNT(*) AS count FROM services").get() as {
+      count: number;
+    }
+  ).count;
+
+  if (count === 0) {
+    const doctors = db
+      .prepare("SELECT id, category, clinic_id, full_name FROM doctors ORDER BY id ASC")
+      .all() as Array<{
+      id: number;
+      category: string;
+      clinic_id: number | null;
+      full_name: string;
+    }>;
+
+    const byCategory = new Map<string, typeof doctors>();
+    for (const doctor of doctors) {
+      const list = byCategory.get(doctor.category) || [];
+      list.push(doctor);
+      byCategory.set(doctor.category, list);
+    }
+
+    const catalog: Array<{
+      name: string;
+      specialty: string;
+      description: string;
+      duration: number;
+    }> = [
+      {
+        name: "Annual wellness exam",
+        specialty: "Primary Care",
+        description: "Comprehensive preventive visit with vitals, labs review, and care planning.",
+        duration: 45,
+      },
+      {
+        name: "Chronic care follow-up",
+        specialty: "Primary Care",
+        description: "Ongoing management for hypertension, diabetes, and related conditions.",
+        duration: 30,
+      },
+      {
+        name: "Cardiology consultation",
+        specialty: "Cardiology",
+        description: "Evaluation for chest pain, heart rhythm concerns, and cardiovascular risk.",
+        duration: 40,
+      },
+      {
+        name: "Heart failure management visit",
+        specialty: "Cardiology",
+        description: "Medication titration and monitoring for heart-failure patients.",
+        duration: 35,
+      },
+      {
+        name: "Skin check",
+        specialty: "Dermatology",
+        description: "Full-body exam for moles, rashes, and early skin-cancer detection.",
+        duration: 30,
+      },
+      {
+        name: "Acne treatment consult",
+        specialty: "Dermatology",
+        description: "Assessment and treatment planning for inflammatory acne.",
+        duration: 25,
+      },
+      {
+        name: "Well-child visit",
+        specialty: "Pediatrics",
+        description: "Growth, development, and immunization review for children.",
+        duration: 30,
+      },
+      {
+        name: "Pediatric asthma review",
+        specialty: "Pediatrics",
+        description: "Action-plan update and inhaler technique coaching for families.",
+        duration: 30,
+      },
+      {
+        name: "Sports injury evaluation",
+        specialty: "Orthopedics",
+        description: "Assessment of joint and soft-tissue injuries with rehab guidance.",
+        duration: 40,
+      },
+      {
+        name: "Joint pain consultation",
+        specialty: "Orthopedics",
+        description: "Workup for chronic joint pain and mobility limitations.",
+        duration: 35,
+      },
+      {
+        name: "Initial psychiatry consult",
+        specialty: "Mental Health",
+        description: "Diagnostic interview and treatment planning for mood or anxiety concerns.",
+        duration: 50,
+      },
+      {
+        name: "Medication management visit",
+        specialty: "Mental Health",
+        description: "Follow-up for psychiatric medication response and side effects.",
+        duration: 25,
+      },
+      {
+        name: "Migraine evaluation",
+        specialty: "Neurology",
+        description: "History, trigger review, and preventive/rescue plan for migraine.",
+        duration: 40,
+      },
+      {
+        name: "Neurology follow-up",
+        specialty: "Neurology",
+        description: "Ongoing review for neuropathy, headache, or seizure care plans.",
+        duration: 30,
+      },
+    ];
+
+    const insertService = db.prepare(
+      `INSERT INTO services (name, specialty, description, duration_minutes, clinic_id)
+       VALUES (?, ?, ?, ?, ?)`,
+    );
+    const linkDoctor = db.prepare(
+      `INSERT OR IGNORE INTO service_doctors (service_id, doctor_id) VALUES (?, ?)`,
+    );
+
+    const tx = db.transaction(() => {
+      for (const item of catalog) {
+        const pool = byCategory.get(item.specialty) || [];
+        const clinicId = pool[0]?.clinic_id ?? null;
+        const result = insertService.run(
+          item.name,
+          item.specialty,
+          item.description,
+          item.duration,
+          clinicId,
+        );
+        const serviceId = Number(result.lastInsertRowid);
+        const linked = pool.slice(0, Math.min(3, pool.length));
+        for (const doctor of linked) {
+          linkDoctor.run(serviceId, doctor.id);
+        }
+      }
+    });
+    tx();
+  }
+
+  db.prepare(
+    "INSERT INTO meta (key, value) VALUES ('services_seeded', '1') ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+  ).run();
+}
+
+export function listServiceSpecialties() {
+  return getDb()
+    .prepare(
+      `SELECT specialty, COUNT(*) AS count
+       FROM services
+       GROUP BY specialty
+       ORDER BY specialty ASC`,
+    )
+    .all() as Array<{ specialty: string; count: number }>;
+}
+
+export function listDoctorsForFilter(options?: {
+  specialty?: string;
+  limit?: number;
+}) {
+  const specialty =
+    options?.specialty && options.specialty !== "All"
+      ? options.specialty.trim()
+      : "";
+  const limit = Math.min(Math.max(options?.limit || 200, 1), 500);
+  const db = getDb();
+
+  if (specialty) {
+    return db
+      .prepare(
+        `SELECT id, full_name, category, specialty, clinic_id
+         FROM doctors
+         WHERE category = ?
+         ORDER BY full_name ASC
+         LIMIT ?`,
+      )
+      .all(specialty, limit) as Array<{
+      id: number;
+      full_name: string;
+      category: string;
+      specialty: string;
+      clinic_id: number | null;
+    }>;
+  }
+
+  return db
+    .prepare(
+      `SELECT id, full_name, category, specialty, clinic_id
+       FROM doctors
+       ORDER BY full_name ASC
+       LIMIT ?`,
+    )
+    .all(limit) as Array<{
+    id: number;
+    full_name: string;
+    category: string;
+    specialty: string;
+    clinic_id: number | null;
+  }>;
+}
+
+export function searchServices(options?: {
+  query?: string;
+  specialty?: string;
+  doctorId?: number | null;
+  clinicId?: number | null;
+  page?: number;
+  pageSize?: number;
+}) {
+  const query = options?.query?.trim() || "";
+  const specialty =
+    options?.specialty && options.specialty !== "All"
+      ? options.specialty.trim()
+      : "";
+  const doctorId = options?.doctorId && options.doctorId > 0 ? options.doctorId : null;
+  const clinicId = options?.clinicId && options.clinicId > 0 ? options.clinicId : null;
+  const pageSize = Math.min(Math.max(options?.pageSize || 10, 1), 50);
+  const page = Math.max(options?.page || 1, 1);
+  const offset = (page - 1) * pageSize;
+
+  const where: string[] = [];
+  const params: Array<string | number> = [];
+
+  if (specialty) {
+    where.push("s.specialty = ?");
+    params.push(specialty);
+  }
+  if (clinicId) {
+    where.push("s.clinic_id = ?");
+    params.push(clinicId);
+  }
+  if (doctorId) {
+    where.push(
+      `EXISTS (
+        SELECT 1 FROM service_doctors sd
+        WHERE sd.service_id = s.id AND sd.doctor_id = ?
+      )`,
+    );
+    params.push(doctorId);
+  }
+  if (query) {
+    where.push(
+      `(s.name LIKE ? OR s.description LIKE ? OR s.specialty LIKE ? OR c.name LIKE ?)`,
+    );
+    const like = `%${query}%`;
+    params.push(like, like, like, like);
+  }
+
+  const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
+  const db = getDb();
+
+  const total = (
+    db
+      .prepare(
+        `SELECT COUNT(*) AS count
+         FROM services s
+         LEFT JOIN clinics c ON c.id = s.clinic_id
+         ${whereSql}`,
+      )
+      .get(...params) as { count: number }
+  ).count;
+
+  const services = db
+    .prepare(
+      `SELECT
+         s.*,
+         c.name AS clinic_name,
+         COALESCE((
+           SELECT GROUP_CONCAT(d.full_name, ', ')
+           FROM service_doctors sd
+           JOIN doctors d ON d.id = sd.doctor_id
+           WHERE sd.service_id = s.id
+         ), '') AS doctor_names,
+         COALESCE((
+           SELECT GROUP_CONCAT(d.id, ',')
+           FROM service_doctors sd
+           JOIN doctors d ON d.id = sd.doctor_id
+           WHERE sd.service_id = s.id
+         ), '') AS doctor_ids
+       FROM services s
+       LEFT JOIN clinics c ON c.id = s.clinic_id
+       ${whereSql}
+       ORDER BY s.specialty ASC, s.name ASC
+       LIMIT ? OFFSET ?`,
+    )
+    .all(...params, pageSize, offset) as ServiceListItem[];
+
+  return {
+    services,
+    total,
+    page,
+    pageSize,
+    totalPages: Math.max(1, Math.ceil(total / pageSize)),
+  };
+}
+
+const SERVICE_LIST_SELECT = `SELECT
+   s.*,
+   c.name AS clinic_name,
+   COALESCE((
+     SELECT GROUP_CONCAT(d.full_name, ', ')
+     FROM service_doctors sd
+     JOIN doctors d ON d.id = sd.doctor_id
+     WHERE sd.service_id = s.id
+   ), '') AS doctor_names,
+   COALESCE((
+     SELECT GROUP_CONCAT(d.id, ',')
+     FROM service_doctors sd
+     JOIN doctors d ON d.id = sd.doctor_id
+     WHERE sd.service_id = s.id
+   ), '') AS doctor_ids
+ FROM services s
+ LEFT JOIN clinics c ON c.id = s.clinic_id`;
+
+export function getService(id: number) {
+  return getDb()
+    .prepare("SELECT * FROM services WHERE id = ?")
+    .get(id) as ServiceRow | undefined;
+}
+
+export function getServiceById(id: number) {
+  return getDb()
+    .prepare(`${SERVICE_LIST_SELECT} WHERE s.id = ?`)
+    .get(id) as ServiceListItem | undefined;
+}
+
+export function listServices() {
+  return getDb()
+    .prepare(`${SERVICE_LIST_SELECT} ORDER BY s.specialty ASC, s.name ASC`)
+    .all() as ServiceListItem[];
+}
+
+export function listServiceDoctorIds(serviceId: number) {
+  return (
+    getDb()
+      .prepare("SELECT doctor_id FROM service_doctors WHERE service_id = ?")
+      .all(serviceId) as Array<{ doctor_id: number }>
+  ).map((row) => row.doctor_id);
+}
+
+type ServiceWriteInput = {
+  name: string;
+  specialty: string;
+  description: string;
+  durationMinutes?: number | null;
+  clinicId?: number | null;
+  doctorIds: number[];
+};
+
+function resolveServiceClinicId(
+  db: Database.Database,
+  clinicId: number | null | undefined,
+  doctorIds: number[],
+) {
+  if (clinicId) {
+    return clinicId;
+  }
+
+  if (!doctorIds.length) {
+    return null;
+  }
+
+  const doctor = db
+    .prepare("SELECT clinic_id FROM doctors WHERE id = ?")
+    .get(doctorIds[0]) as { clinic_id: number | null } | undefined;
+
+  return doctor?.clinic_id ?? null;
+}
+
+function replaceServiceDoctors(
+  db: Database.Database,
+  serviceId: number,
+  doctorIds: number[],
+) {
+  db.prepare("DELETE FROM service_doctors WHERE service_id = ?").run(serviceId);
+  const link = db.prepare(
+    `INSERT OR IGNORE INTO service_doctors (service_id, doctor_id) VALUES (?, ?)`,
+  );
+  for (const doctorId of doctorIds) {
+    link.run(serviceId, doctorId);
+  }
+}
+
+export function createService(input: ServiceWriteInput) {
+  const db = getDb();
+  const clinicId = resolveServiceClinicId(db, input.clinicId, input.doctorIds);
+  const result = db
+    .prepare(
+      `INSERT INTO services (name, specialty, description, duration_minutes, clinic_id)
+       VALUES (?, ?, ?, ?, ?)`,
+    )
+    .run(
+      input.name,
+      input.specialty,
+      input.description,
+      input.durationMinutes ?? null,
+      clinicId,
+    );
+  const id = Number(result.lastInsertRowid);
+  replaceServiceDoctors(db, id, input.doctorIds);
+  return id;
+}
+
+export function updateService(id: number, input: ServiceWriteInput) {
+  const db = getDb();
+  const clinicId = resolveServiceClinicId(db, input.clinicId, input.doctorIds);
+  db.prepare(
+    `UPDATE services
+     SET name = ?, specialty = ?, description = ?, duration_minutes = ?,
+         clinic_id = ?, updated_at = datetime('now')
+     WHERE id = ?`,
+  ).run(
+    input.name,
+    input.specialty,
+    input.description,
+    input.durationMinutes ?? null,
+    clinicId,
+    id,
+  );
+  replaceServiceDoctors(db, id, input.doctorIds);
+}
+
+export function deleteService(id: number) {
+  getDb().prepare("DELETE FROM services WHERE id = ?").run(id);
+}
+
 export function getDashboardStats() {
   const db = getDb();
   const patients = (
@@ -940,6 +1403,11 @@ export function getDashboardStats() {
       count: number;
     }
   ).count;
+  const services = (
+    db.prepare("SELECT COUNT(*) AS count FROM services").get() as {
+      count: number;
+    }
+  ).count;
 
-  return { patients, records, appointments, users, doctors, clinics };
+  return { patients, records, appointments, users, doctors, clinics, services };
 }

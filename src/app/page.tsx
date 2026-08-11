@@ -34,6 +34,12 @@ export default async function HomePage() {
             >
               Doctors
             </Link>
+            <Link
+              href="/services"
+              className="rounded-md px-3 py-1.5 text-sm text-[var(--ink-soft)] hover:bg-white"
+            >
+              Services
+            </Link>
             {session ? (
               <Link
                 href={portalHref}
@@ -67,7 +73,7 @@ export default async function HomePage() {
               HarborCare
             </p>
             <h1 className="mt-4 max-w-2xl text-2xl text-[var(--ink-soft)] md:text-3xl">
-              Browse clinics and doctors without signing in.
+              Browse clinics, doctors, and services without signing in.
             </h1>
             <p className="mt-4 max-w-xl text-[var(--muted)]">
               Guests explore public care info across the clinic network.
@@ -86,6 +92,12 @@ export default async function HomePage() {
                 className="rounded-lg border border-[var(--line)] bg-white/70 px-4 py-2.5 text-sm font-semibold text-[var(--ink)]"
               >
                 Browse doctors
+              </Link>
+              <Link
+                href="/services"
+                className="rounded-lg border border-[var(--line)] bg-white/70 px-4 py-2.5 text-sm font-semibold text-[var(--ink)]"
+              >
+                Browse services
               </Link>
             </div>
           </div>

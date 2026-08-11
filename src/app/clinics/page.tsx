@@ -31,6 +31,12 @@ export default async function ClinicsPage() {
               Doctors
             </Link>
             <Link
+              href="/services"
+              className="rounded-md px-3 py-1.5 text-sm text-[var(--ink-soft)] hover:bg-white"
+            >
+              Services
+            </Link>
+            <Link
               href={session ? homeForRole(session.role) : "/login"}
               className="rounded-md bg-[var(--accent)] px-3 py-1.5 text-sm font-medium text-white"
             >
