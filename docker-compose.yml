@@ -1,5 +1,5 @@
-# Local development database only.
-# Production uses Supabase (set DATABASE_URL to the Supabase pooler URI).
+# Local development database only (not used on Hetzner).
+# Production: Supabase + docker-compose.prod.yml (see deploy/hetzner/README.md).
 #
 #   npm run db:up      # start Postgres
 #   npm run db:down    # stop
