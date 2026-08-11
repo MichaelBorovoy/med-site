@@ -1,0 +1,33 @@
+# Local development database only.
+# Production uses Supabase (set DATABASE_URL to the Supabase pooler URI).
+#
+#   npm run db:up      # start Postgres
+#   npm run db:down    # stop
+#   npm run db:reset   # wipe volume and re-apply schema
+
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: harborcare-postgres
+    restart: unless-stopped
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-harborcare}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-harborcare}
+      POSTGRES_DB: ${POSTGRES_DB:-harborcare}
+    volumes:
+      - harborcare_pg_data:/var/lib/postgresql/data
+      - ./supabase/migrations/20260311120000_init.sql:/docker-entrypoint-initdb.d/01_init.sql:ro
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U ${POSTGRES_USER:-harborcare} -d ${POSTGRES_DB:-harborcare}",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  harborcare_pg_data:
