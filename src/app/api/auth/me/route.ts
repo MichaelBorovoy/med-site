@@ -16,6 +16,7 @@ export async function GET() {
         username: session.username,
         role: session.role,
         patientId: session.patientId,
+        doctorId: session.doctorId,
       },
     });
   } catch (error) {

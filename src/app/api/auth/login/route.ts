@@ -36,6 +36,7 @@ export async function POST(request: Request) {
         username: user.username,
         role: user.role,
         patientId: user.patientId,
+        doctorId: user.doctorId,
       },
     });
   } catch (error) {

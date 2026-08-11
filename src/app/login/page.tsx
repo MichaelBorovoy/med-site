@@ -3,13 +3,14 @@ import { redirect } from "next/navigation";
 import { LoginForm } from "@/components/LoginForm";
 import { getSession } from "@/lib/auth";
 import { getDb } from "@/lib/db";
+import { homeForRole } from "@/lib/permissions";
 
 export default async function LoginPage() {
   getDb();
   const session = await getSession();
 
   if (session) {
-    redirect(session.role === "admin" ? "/admin" : "/patient");
+    redirect(homeForRole(session.role));
   }
 
   return (
@@ -38,14 +39,14 @@ export default async function LoginPage() {
                 HarborCare
               </p>
               <p className="mt-3 max-w-sm text-sm leading-6 text-teal-50/90 md:text-base">
-                A calm place for patients to review their medical records, and
-                for clinicians to manage care data securely.
+                Role-based access for guests, patients, doctors, coordinators,
+                and admins.
               </p>
             </div>
             <ul className="space-y-2 text-sm text-teal-50/85">
-              <li>Encrypted session cookies</li>
-              <li>Role-based patient and admin access</li>
-              <li>Credentials stay in local environment files</li>
+              <li>Guest: public doctor and clinic info</li>
+              <li>Patient: own records and profile only</li>
+              <li>Doctor / coordinator / admin workspaces</li>
             </ul>
           </div>
         </section>
@@ -55,19 +56,27 @@ export default async function LoginPage() {
             Sign in
           </h1>
           <p className="mt-2 text-sm text-[var(--muted)]">
-            Use the username and password from your local environment setup.
+            Use credentials from your local environment setup.
           </p>
           <div className="mt-8">
             <LoginForm />
           </div>
           <p className="mt-6 text-sm text-[var(--muted)]">
-            Looking for a clinician?{" "}
+            Guest access?{" "}
+            <Link
+              href="/"
+              className="font-medium text-[var(--accent)] hover:underline"
+            >
+              View public info
+            </Link>{" "}
+            or{" "}
             <Link
               href="/doctors"
               className="font-medium text-[var(--accent)] hover:underline"
             >
-              Browse doctors by category
+              browse doctors
             </Link>
+            .
           </p>
         </section>
       </div>

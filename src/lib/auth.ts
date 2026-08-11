@@ -2,7 +2,7 @@ import bcrypt from "bcryptjs";
 import { SignJWT, jwtVerify } from "jose";
 import { cookies } from "next/headers";
 import { findUserByUsername, findUserById } from "@/lib/db";
-import type { SessionUser, UserRole } from "@/lib/types";
+import { ALL_ROLES, type SessionUser, type UserRole } from "@/lib/types";
 
 const COOKIE_NAME = "med_portal_session";
 const MAX_AGE_SECONDS = 60 * 60 * 12;
@@ -17,12 +17,17 @@ function getSecret() {
   return new TextEncoder().encode(secret);
 }
 
+function isUserRole(value: unknown): value is UserRole {
+  return typeof value === "string" && ALL_ROLES.includes(value as UserRole);
+}
+
 export async function createSessionToken(user: SessionUser) {
   return new SignJWT({
     id: user.id,
     username: user.username,
     role: user.role,
     patientId: user.patientId,
+    doctorId: user.doctorId,
   })
     .setProtectedHeader({ alg: "HS256" })
     .setIssuedAt()
@@ -35,7 +40,7 @@ export async function verifySessionToken(token: string) {
   if (
     typeof payload.id !== "number" ||
     typeof payload.username !== "string" ||
-    (payload.role !== "admin" && payload.role !== "patient")
+    !isUserRole(payload.role)
   ) {
     return null;
   }
@@ -43,9 +48,10 @@ export async function verifySessionToken(token: string) {
   return {
     id: payload.id,
     username: payload.username,
-    role: payload.role as UserRole,
+    role: payload.role,
     patientId:
       typeof payload.patientId === "number" ? payload.patientId : null,
+    doctorId: typeof payload.doctorId === "number" ? payload.doctorId : null,
   } satisfies SessionUser;
 }
 
@@ -65,6 +71,7 @@ export async function authenticate(username: string, password: string) {
     username: user.username,
     role: user.role,
     patientId: user.patient_id,
+    doctorId: user.doctor_id,
   } satisfies SessionUser;
 }
 
@@ -114,20 +121,28 @@ export async function getSession(): Promise<SessionUser | null> {
       username: fresh.username,
       role: fresh.role,
       patientId: fresh.patient_id,
+      doctorId: fresh.doctor_id,
     };
   } catch {
     return null;
   }
 }
 
-export async function requireSession(role?: UserRole) {
+export async function requireSession(role?: UserRole | UserRole[]) {
   const session = await getSession();
   if (!session) {
     return null;
   }
-  if (role && session.role !== role) {
+
+  if (!role) {
+    return session;
+  }
+
+  const allowed = Array.isArray(role) ? role : [role];
+  if (!allowed.includes(session.role)) {
     return null;
   }
+
   return session;
 }
 
