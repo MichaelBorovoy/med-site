@@ -17,7 +17,9 @@ import type {
   UserRole,
 } from "@/lib/types";
 
-const DATA_DIR = path.join(process.cwd(), "data");
+const DATA_DIR = process.env.DATA_DIR?.trim()
+  ? path.resolve(process.env.DATA_DIR.trim())
+  : path.join(process.cwd(), "data");
 const DB_PATH = path.join(DATA_DIR, "medportal.db");
 
 let dbInstance: Database.Database | null = null;
@@ -621,21 +623,36 @@ export function getDb() {
     return dbInstance;
   }
 
-  if (!fs.existsSync(DATA_DIR)) {
-    fs.mkdirSync(DATA_DIR, { recursive: true });
+  try {
+    if (!fs.existsSync(DATA_DIR)) {
+      fs.mkdirSync(DATA_DIR, { recursive: true });
+    }
+    fs.accessSync(DATA_DIR, fs.constants.W_OK);
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    throw new Error(
+      `SQLite data directory is not writable (${DATA_DIR}): ${detail}. On Hetzner/Docker, mount a writable volume at DATA_DIR and chown it to the app user.`,
+    );
   }
 
-  const db = new Database(DB_PATH);
-  db.pragma("journal_mode = WAL");
-  createSchema(db);
-  migrateSchema(db);
-  seedClinics(db);
-  seedDoctors(db);
-  seedFromEnv(db);
-  seedScaleDoctors(db);
-  seedServices(db);
-  dbInstance = db;
-  return db;
+  try {
+    const db = new Database(DB_PATH);
+    db.pragma("journal_mode = WAL");
+    createSchema(db);
+    migrateSchema(db);
+    seedClinics(db);
+    seedDoctors(db);
+    seedFromEnv(db);
+    seedScaleDoctors(db);
+    seedServices(db);
+    dbInstance = db;
+    return db;
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    throw new Error(
+      `Failed to open SQLite database at ${DB_PATH}: ${detail}. Rebuild native modules with "npm rebuild better-sqlite3" (or rebuild the Docker image) on the same OS/arch as production.`,
+    );
+  }
 }
 
 export function listPatients() {
