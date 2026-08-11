@@ -1,7 +1,4 @@
-import Database from "better-sqlite3";
 import bcrypt from "bcryptjs";
-import fs from "fs";
-import path from "path";
 import type {
   AppointmentRow,
   ClinicRow,
@@ -16,206 +13,87 @@ import type {
   UserRow,
   UserRole,
 } from "@/lib/types";
+import { getSql, serializeRow, serializeRows } from "@/lib/sql";
 
-const DATA_DIR = path.join(process.cwd(), "data");
-const DB_PATH = path.join(DATA_DIR, "medportal.db");
+type Sql = ReturnType<typeof getSql>;
 
-let dbInstance: Database.Database | null = null;
+let dbReady: Promise<void> | null = null;
 
-function tableColumns(db: Database.Database, table: string) {
-  return (
-    db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>
-  ).map((column) => column.name);
+const DOCTOR_SELECT = `
+  d.id, d.full_name, d.clinic_id, d.category, d.specialty, d.years_experience,
+  d.experience_summary, d.education, d.languages,
+  d.accepting_patients::int AS accepting_patients,
+  d.created_at, d.updated_at
+`;
+
+async function upsertMeta(sql: Sql, key: string, value: string) {
+  await sql`
+    INSERT INTO meta (key, value) VALUES (${key}, ${value})
+    ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value
+  `;
 }
 
-function createSchema(db: Database.Database) {
-  db.exec(`
-    PRAGMA foreign_keys = ON;
+async function upsertUser(
+  sql: Sql,
+  input: {
+    username: string;
+    password: string;
+    role: UserRole;
+    patientId?: number | null;
+    doctorId?: number | null;
+  },
+) {
+  const existing = await sql`
+    SELECT id FROM users WHERE username = ${input.username}
+  `;
+  if (existing.length > 0) {
+    return Number(existing[0].id);
+  }
 
-    CREATE TABLE IF NOT EXISTS patients (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      full_name TEXT NOT NULL,
-      email TEXT NOT NULL UNIQUE,
-      phone TEXT,
-      date_of_birth TEXT NOT NULL,
-      blood_type TEXT,
-      allergies TEXT,
-      emergency_contact TEXT,
-      notes TEXT,
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
-    );
-
-    CREATE TABLE IF NOT EXISTS clinics (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      name TEXT NOT NULL UNIQUE,
-      city TEXT NOT NULL,
-      address TEXT NOT NULL,
-      phone TEXT,
-      description TEXT,
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
-    );
-
-    CREATE TABLE IF NOT EXISTS doctors (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      full_name TEXT NOT NULL,
-      clinic_id INTEGER REFERENCES clinics(id) ON DELETE SET NULL,
-      category TEXT NOT NULL,
-      specialty TEXT NOT NULL,
-      years_experience INTEGER NOT NULL DEFAULT 0,
-      experience_summary TEXT NOT NULL,
-      education TEXT,
-      languages TEXT,
-      accepting_patients INTEGER NOT NULL DEFAULT 1,
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
-    );
-
-    CREATE TABLE IF NOT EXISTS users (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      username TEXT NOT NULL UNIQUE,
-      password_hash TEXT NOT NULL,
-      role TEXT NOT NULL CHECK (role IN ('admin', 'patient', 'doctor', 'coordinator')),
-      patient_id INTEGER REFERENCES patients(id) ON DELETE SET NULL,
-      doctor_id INTEGER REFERENCES doctors(id) ON DELETE SET NULL,
-      created_at TEXT NOT NULL DEFAULT (datetime('now'))
-    );
-
-    CREATE TABLE IF NOT EXISTS appointments (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      patient_id INTEGER NOT NULL REFERENCES patients(id) ON DELETE CASCADE,
-      doctor_id INTEGER REFERENCES doctors(id) ON DELETE SET NULL,
-      provider_name TEXT NOT NULL,
-      reason TEXT NOT NULL,
-      status TEXT NOT NULL CHECK (status IN ('scheduled', 'completed', 'cancelled')) DEFAULT 'scheduled',
-      scheduled_at TEXT NOT NULL,
-      notes TEXT,
-      created_at TEXT NOT NULL DEFAULT (datetime('now'))
-    );
-
-    CREATE TABLE IF NOT EXISTS medical_records (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      patient_id INTEGER NOT NULL REFERENCES patients(id) ON DELETE CASCADE,
-      appointment_id INTEGER REFERENCES appointments(id) ON DELETE SET NULL,
-      title TEXT NOT NULL,
-      record_type TEXT NOT NULL,
-      summary TEXT NOT NULL,
-      diagnosis TEXT,
-      treatment TEXT,
-      provider_name TEXT,
-      recorded_at TEXT NOT NULL,
-      created_at TEXT NOT NULL DEFAULT (datetime('now'))
-    );
-
-    CREATE TABLE IF NOT EXISTS prescriptions (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      patient_id INTEGER NOT NULL REFERENCES patients(id) ON DELETE CASCADE,
-      medication TEXT NOT NULL,
-      dosage TEXT NOT NULL,
-      instructions TEXT,
-      prescribed_by TEXT,
-      starts_on TEXT NOT NULL,
-      ends_on TEXT,
-      created_at TEXT NOT NULL DEFAULT (datetime('now'))
-    );
-
-    CREATE TABLE IF NOT EXISTS services (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      name TEXT NOT NULL,
-      specialty TEXT NOT NULL,
-      description TEXT NOT NULL,
-      duration_minutes INTEGER,
-      clinic_id INTEGER REFERENCES clinics(id) ON DELETE SET NULL,
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
-    );
-
-    CREATE TABLE IF NOT EXISTS service_doctors (
-      service_id INTEGER NOT NULL REFERENCES services(id) ON DELETE CASCADE,
-      doctor_id INTEGER NOT NULL REFERENCES doctors(id) ON DELETE CASCADE,
-      PRIMARY KEY (service_id, doctor_id)
-    );
-
-    CREATE TABLE IF NOT EXISTS meta (
-      key TEXT PRIMARY KEY,
-      value TEXT NOT NULL
-    );
-  `);
+  const passwordHash = await bcrypt.hash(input.password, 12);
+  const [row] = await sql`
+    INSERT INTO users (username, password_hash, role, patient_id, doctor_id)
+    VALUES (
+      ${input.username},
+      ${passwordHash},
+      ${input.role},
+      ${input.patientId ?? null},
+      ${input.doctorId ?? null}
+    )
+    RETURNING id
+  `;
+  return Number(row.id);
 }
 
-function migrateSchema(db: Database.Database) {
-  const userCols = tableColumns(db, "users");
-  if (userCols.length && !userCols.includes("doctor_id")) {
-    db.exec(`
-      CREATE TABLE users_migrated (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        username TEXT NOT NULL UNIQUE,
-        password_hash TEXT NOT NULL,
-        role TEXT NOT NULL CHECK (role IN ('admin', 'patient', 'doctor', 'coordinator')),
-        patient_id INTEGER REFERENCES patients(id) ON DELETE SET NULL,
-        doctor_id INTEGER REFERENCES doctors(id) ON DELETE SET NULL,
-        created_at TEXT NOT NULL DEFAULT (datetime('now'))
-      );
-      INSERT INTO users_migrated (id, username, password_hash, role, patient_id, created_at)
-      SELECT id, username, password_hash, role, patient_id, created_at FROM users;
-      DROP TABLE users;
-      ALTER TABLE users_migrated RENAME TO users;
-    `);
-  }
-
-  const appointmentCols = tableColumns(db, "appointments");
-  if (appointmentCols.length && !appointmentCols.includes("doctor_id")) {
-    db.exec(`ALTER TABLE appointments ADD COLUMN doctor_id INTEGER REFERENCES doctors(id) ON DELETE SET NULL`);
-  }
-
-  const recordCols = tableColumns(db, "medical_records");
-  if (recordCols.length && !recordCols.includes("appointment_id")) {
-    db.exec(
-      `ALTER TABLE medical_records ADD COLUMN appointment_id INTEGER REFERENCES appointments(id) ON DELETE SET NULL`,
-    );
-  }
-
-  const doctorCols = tableColumns(db, "doctors");
-  if (doctorCols.length && !doctorCols.includes("clinic_id")) {
-    db.exec(
-      `ALTER TABLE doctors ADD COLUMN clinic_id INTEGER REFERENCES clinics(id) ON DELETE SET NULL`,
-    );
-  }
-
-  // Indexes must run after clinic_id exists on upgraded databases.
-  db.exec(`
-    CREATE INDEX IF NOT EXISTS idx_doctors_clinic_id ON doctors(clinic_id);
-    CREATE INDEX IF NOT EXISTS idx_doctors_category ON doctors(category);
-    CREATE INDEX IF NOT EXISTS idx_doctors_full_name ON doctors(full_name);
-    CREATE INDEX IF NOT EXISTS idx_services_specialty ON services(specialty);
-    CREATE INDEX IF NOT EXISTS idx_services_clinic_id ON services(clinic_id);
-    CREATE INDEX IF NOT EXISTS idx_service_doctors_doctor_id ON service_doctors(doctor_id);
-  `);
-}
-
-function seedClinics(db: Database.Database) {
-  const seeded = db
-    .prepare("SELECT value FROM meta WHERE key = 'clinics_seeded'")
-    .get() as { value: string } | undefined;
-
-  if (seeded?.value === "1") {
-    assignDoctorsToClinics(db);
+async function assignDoctorsToClinics(sql: Sql) {
+  const clinics = await sql`SELECT id FROM clinics ORDER BY id ASC`;
+  if (clinics.length === 0) {
     return;
   }
 
-  const count = (
-    db.prepare("SELECT COUNT(*) AS count FROM clinics").get() as {
-      count: number;
-    }
-  ).count;
+  const unassigned = await sql`
+    SELECT id FROM doctors WHERE clinic_id IS NULL ORDER BY id ASC
+  `;
 
+  for (let index = 0; index < unassigned.length; index++) {
+    const clinicId = clinics[index % clinics.length].id;
+    await sql`UPDATE doctors SET clinic_id = ${clinicId} WHERE id = ${unassigned[index].id}`;
+  }
+}
+
+async function seedClinics() {
+  const sql = getSql();
+  const seeded = await sql`
+    SELECT value FROM meta WHERE key = 'clinics_seeded'
+  `;
+
+  if (seeded[0]?.value === "1") {
+    await assignDoctorsToClinics(sql);
+    return;
+  }
+
+  const [{ count }] = await sql`SELECT COUNT(*)::int AS count FROM clinics`;
   if (count === 0) {
-    const insert = db.prepare(
-      `INSERT INTO clinics (name, city, address, phone, description)
-       VALUES (?, ?, ?, ?, ?)`,
-    );
-
     const clinics: Array<[string, string, string, string, string]> = [
       [
         "HarborCare Downtown",
@@ -254,99 +132,33 @@ function seedClinics(db: Database.Database) {
       ],
     ];
 
-    for (const clinic of clinics) {
-      insert.run(...clinic);
+    for (const [name, city, address, phone, description] of clinics) {
+      await sql`
+        INSERT INTO clinics (name, city, address, phone, description)
+        VALUES (${name}, ${city}, ${address}, ${phone}, ${description})
+      `;
     }
   }
 
-  assignDoctorsToClinics(db);
-
-  db.prepare(
-    "INSERT INTO meta (key, value) VALUES ('clinics_seeded', '1') ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-  ).run();
+  await assignDoctorsToClinics(sql);
+  await upsertMeta(sql, "clinics_seeded", "1");
 }
 
-function assignDoctorsToClinics(db: Database.Database) {
-  const clinics = db
-    .prepare("SELECT id FROM clinics ORDER BY id ASC")
-    .all() as Array<{ id: number }>;
-  if (clinics.length === 0) {
+async function seedDoctors() {
+  const sql = getSql();
+  const seeded = await sql`
+    SELECT value FROM meta WHERE key = 'doctors_seeded'
+  `;
+  if (seeded[0]?.value === "1") {
     return;
   }
 
-  const unassigned = db
-    .prepare("SELECT id FROM doctors WHERE clinic_id IS NULL ORDER BY id ASC")
-    .all() as Array<{ id: number }>;
-
-  const update = db.prepare("UPDATE doctors SET clinic_id = ? WHERE id = ?");
-  unassigned.forEach((doctor, index) => {
-    update.run(clinics[index % clinics.length].id, doctor.id);
-  });
-}
-
-function upsertUser(
-  db: Database.Database,
-  input: {
-    username: string;
-    password: string;
-    role: UserRole;
-    patientId?: number | null;
-    doctorId?: number | null;
-  },
-) {
-  const existing = db
-    .prepare("SELECT id FROM users WHERE username = ?")
-    .get(input.username) as { id: number } | undefined;
-
-  if (existing) {
-    return existing.id;
-  }
-
-  const result = db
-    .prepare(
-      `INSERT INTO users (username, password_hash, role, patient_id, doctor_id)
-       VALUES (?, ?, ?, ?, ?)`,
-    )
-    .run(
-      input.username,
-      bcrypt.hashSync(input.password, 12),
-      input.role,
-      input.patientId ?? null,
-      input.doctorId ?? null,
-    );
-
-  return Number(result.lastInsertRowid);
-}
-
-function seedDoctors(db: Database.Database) {
-  const seeded = db
-    .prepare("SELECT value FROM meta WHERE key = 'doctors_seeded'")
-    .get() as { value: string } | undefined;
-
-  if (seeded?.value === "1") {
-    return;
-  }
-
-  const count = (
-    db.prepare("SELECT COUNT(*) AS count FROM doctors").get() as {
-      count: number;
-    }
-  ).count;
-
+  const [{ count }] = await sql`SELECT COUNT(*)::int AS count FROM doctors`;
   if (count === 0) {
-    const clinics = db
-      .prepare("SELECT id FROM clinics ORDER BY id ASC")
-      .all() as Array<{ id: number }>;
-
-    const insert = db.prepare(
-      `INSERT INTO doctors (
-        full_name, clinic_id, category, specialty, years_experience,
-        experience_summary, education, languages, accepting_patients
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    );
+    const clinics = await sql`SELECT id FROM clinics ORDER BY id ASC`;
 
     const doctors: Array<
-      [string, string, string, number, string, string, string, number]
+      [string, string, string, number, string, string, string, boolean]
     > = [
       [
         "Dr. Maya Chen",
@@ -356,7 +168,7 @@ function seedDoctors(db: Database.Database) {
         "Leads comprehensive adult and family wellness programs, with a focus on preventive screening and long-term chronic disease management.",
         "MD, University of Washington",
         "English, Mandarin",
-        1,
+        true,
       ],
       [
         "Dr. Omar Hassan",
@@ -366,7 +178,7 @@ function seedDoctors(db: Database.Database) {
         "Specializes in coronary artery disease and catheter-based interventions. Mentors fellows in advanced cardiac imaging.",
         "MD, Johns Hopkins University",
         "English, Arabic",
-        1,
+        true,
       ],
       [
         "Dr. Elena Brooks",
@@ -376,7 +188,7 @@ function seedDoctors(db: Database.Database) {
         "Manages complex heart-failure caseloads and coordinates multidisciplinary care teams.",
         "MD, Emory University",
         "English, Spanish",
-        1,
+        true,
       ],
       [
         "Dr. Priya Nair",
@@ -386,7 +198,7 @@ function seedDoctors(db: Database.Database) {
         "Treats inflammatory skin conditions and early skin-cancer detection.",
         "MD, UCLA",
         "English, Hindi",
-        1,
+        true,
       ],
       [
         "Dr. Luis Ortega",
@@ -396,7 +208,7 @@ function seedDoctors(db: Database.Database) {
         "Provides newborn through adolescent care with emphasis on developmental screening.",
         "MD, University of Michigan",
         "English, Spanish",
-        1,
+        true,
       ],
       [
         "Dr. Hannah Park",
@@ -406,7 +218,7 @@ function seedDoctors(db: Database.Database) {
         "Focuses on joint preservation, injury recovery, and return-to-activity planning.",
         "MD, Northwestern University",
         "English, Korean",
-        0,
+        false,
       ],
       [
         "Dr. Jordan Blake",
@@ -416,7 +228,7 @@ function seedDoctors(db: Database.Database) {
         "Supports adults with anxiety, depression, and trauma-related conditions.",
         "MD, Columbia University",
         "English",
-        1,
+        true,
       ],
       [
         "Dr. Sophia Grant",
@@ -426,27 +238,54 @@ function seedDoctors(db: Database.Database) {
         "Evaluates migraine, neuropathy, and seizure disorders with practical lifestyle and medication strategies.",
         "MD, Duke University",
         "English, French",
-        1,
+        true,
       ],
     ];
 
-    doctors.forEach((doctor, index) => {
-      const clinicId = clinics.length ? clinics[index % clinics.length].id : null;
-      insert.run(doctor[0], clinicId, doctor[1], doctor[2], doctor[3], doctor[4], doctor[5], doctor[6], doctor[7]);
-    });
+    for (let index = 0; index < doctors.length; index++) {
+      const [
+        fullName,
+        category,
+        specialty,
+        yearsExperience,
+        experienceSummary,
+        education,
+        languages,
+        acceptingPatients,
+      ] = doctors[index];
+      const clinicId = clinics.length
+        ? clinics[index % clinics.length].id
+        : null;
+      await sql`
+        INSERT INTO doctors (
+          full_name, clinic_id, category, specialty, years_experience,
+          experience_summary, education, languages, accepting_patients
+        ) VALUES (
+          ${fullName},
+          ${clinicId},
+          ${category},
+          ${specialty},
+          ${yearsExperience},
+          ${experienceSummary},
+          ${education},
+          ${languages},
+          ${acceptingPatients}
+        )
+      `;
+    }
   }
 
-  db.prepare(
-    "INSERT INTO meta (key, value) VALUES ('doctors_seeded', '1') ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-  ).run();
+  await upsertMeta(sql, "doctors_seeded", "1");
 }
 
-function seedFromEnv(db: Database.Database) {
+async function seedFromEnv() {
+  const sql = getSql();
+
   const adminUsername = process.env.ADMIN_USERNAME?.trim();
   const adminPassword = process.env.ADMIN_PASSWORD?.trim();
 
   if (adminUsername && adminPassword) {
-    upsertUser(db, {
+    await upsertUser(sql, {
       username: adminUsername,
       password: adminPassword,
       role: "admin",
@@ -462,114 +301,109 @@ function seedFromEnv(db: Database.Database) {
   let patientId: number | null = null;
 
   if (demoUsername && demoPassword) {
-    const existingPatientUser = db
-      .prepare("SELECT id, patient_id FROM users WHERE username = ?")
-      .get(demoUsername) as { id: number; patient_id: number | null } | undefined;
+    const existingPatientUser = await sql`
+      SELECT id, patient_id FROM users WHERE username = ${demoUsername}
+    `;
 
-    if (existingPatientUser?.patient_id) {
-      patientId = existingPatientUser.patient_id;
+    if (existingPatientUser[0]?.patient_id) {
+      patientId = Number(existingPatientUser[0].patient_id);
     } else {
-      const patientInfo = db
-        .prepare(
-          `INSERT INTO patients (
-            full_name, email, phone, date_of_birth, blood_type,
-            allergies, emergency_contact, notes
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      const [patientRow] = await sql`
+        INSERT INTO patients (
+          full_name, email, phone, date_of_birth, blood_type,
+          allergies, emergency_contact, notes
+        ) VALUES (
+          ${process.env.DEMO_PATIENT_FULL_NAME || "Demo Patient"},
+          ${process.env.DEMO_PATIENT_EMAIL || "demo.patient@example.com"},
+          ${"+1 (555) 010-2000"},
+          ${process.env.DEMO_PATIENT_DATE_OF_BIRTH || "1990-01-01"},
+          ${"O+"},
+          ${"Penicillin"},
+          ${"Jordan Rivera · +1 (555) 010-2001"},
+          ${"Seeded demo patient for local development."}
         )
-        .run(
-          process.env.DEMO_PATIENT_FULL_NAME || "Demo Patient",
-          process.env.DEMO_PATIENT_EMAIL || "demo.patient@example.com",
-          "+1 (555) 010-2000",
-          process.env.DEMO_PATIENT_DATE_OF_BIRTH || "1990-01-01",
-          "O+",
-          "Penicillin",
-          "Jordan Rivera · +1 (555) 010-2001",
-          "Seeded demo patient for local development.",
-        );
+        RETURNING id
+      `;
 
-      patientId = Number(patientInfo.lastInsertRowid);
+      patientId = Number(patientRow.id);
 
-      upsertUser(db, {
+      await upsertUser(sql, {
         username: demoUsername,
         password: demoPassword,
         role: "patient",
         patientId,
       });
 
-      const recordCount = (
-        db
-          .prepare(
-            "SELECT COUNT(*) AS count FROM medical_records WHERE patient_id = ?",
-          )
-          .get(patientId) as { count: number }
-      ).count;
+      const [{ count: recordCount }] = await sql`
+        SELECT COUNT(*)::int AS count FROM medical_records WHERE patient_id = ${patientId}
+      `;
 
       if (recordCount === 0) {
-        const maya = db
-          .prepare("SELECT id FROM doctors WHERE full_name = ?")
-          .get("Dr. Maya Chen") as { id: number } | undefined;
+        const mayaRows = await sql`
+          SELECT id FROM doctors WHERE full_name = ${"Dr. Maya Chen"}
+        `;
+        const mayaId = mayaRows[0]?.id ?? null;
 
-        const appointment = db
-          .prepare(
-            `INSERT INTO appointments (
-              patient_id, doctor_id, provider_name, reason, status, scheduled_at, notes
-            ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        const [appointmentRow] = await sql`
+          INSERT INTO appointments (
+            patient_id, doctor_id, provider_name, reason, status, scheduled_at, notes
+          ) VALUES (
+            ${patientId},
+            ${mayaId},
+            ${"Dr. Maya Chen"},
+            ${"Follow-up lipid review"},
+            ${"scheduled"},
+            ${"2026-05-20T15:00:00.000Z"},
+            ${"Bring recent pharmacy list."}
           )
-          .run(
-            patientId,
-            maya?.id ?? null,
-            "Dr. Maya Chen",
-            "Follow-up lipid review",
-            "scheduled",
-            "2026-05-20T15:00:00.000Z",
-            "Bring recent pharmacy list.",
-          );
+          RETURNING id
+        `;
 
-        db.prepare(
-          `INSERT INTO medical_records (
+        await sql`
+          INSERT INTO medical_records (
             patient_id, appointment_id, title, record_type, summary, diagnosis, treatment, provider_name, recorded_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        ).run(
-          patientId,
-          null,
-          "Annual wellness visit",
-          "Visit",
-          "Routine physical exam with normal vitals and labs within range.",
-          "Healthy adult",
-          "Continue current lifestyle plan; follow up in 12 months.",
-          "Dr. Maya Chen",
-          "2025-11-12T10:00:00.000Z",
-        );
+          ) VALUES (
+            ${patientId},
+            ${null},
+            ${"Annual wellness visit"},
+            ${"Visit"},
+            ${"Routine physical exam with normal vitals and labs within range."},
+            ${"Healthy adult"},
+            ${"Continue current lifestyle plan; follow up in 12 months."},
+            ${"Dr. Maya Chen"},
+            ${"2025-11-12T10:00:00.000Z"}
+          )
+        `;
 
-        db.prepare(
-          `INSERT INTO medical_records (
+        await sql`
+          INSERT INTO medical_records (
             patient_id, appointment_id, title, record_type, summary, diagnosis, treatment, provider_name, recorded_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        ).run(
-          patientId,
-          Number(appointment.lastInsertRowid),
-          "Lipid panel",
-          "Lab",
-          "Cholesterol panel collected during wellness visit.",
-          "Borderline LDL",
-          "Dietary counseling; recheck in 6 months.",
-          "Harbor Labs",
-          "2025-11-12T11:30:00.000Z",
-        );
+          ) VALUES (
+            ${patientId},
+            ${Number(appointmentRow.id)},
+            ${"Lipid panel"},
+            ${"Lab"},
+            ${"Cholesterol panel collected during wellness visit."},
+            ${"Borderline LDL"},
+            ${"Dietary counseling; recheck in 6 months."},
+            ${"Harbor Labs"},
+            ${"2025-11-12T11:30:00.000Z"}
+          )
+        `;
 
-        db.prepare(
-          `INSERT INTO prescriptions (
+        await sql`
+          INSERT INTO prescriptions (
             patient_id, medication, dosage, instructions, prescribed_by, starts_on, ends_on
-          ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-        ).run(
-          patientId,
-          "Atorvastatin",
-          "10 mg",
-          "Take once daily in the evening with water.",
-          "Dr. Maya Chen",
-          "2025-11-12",
-          null,
-        );
+          ) VALUES (
+            ${patientId},
+            ${"Atorvastatin"},
+            ${"10 mg"},
+            ${"Take once daily in the evening with water."},
+            ${"Dr. Maya Chen"},
+            ${"2025-11-12"},
+            ${null}
+          )
+        `;
       }
     }
   }
@@ -579,24 +413,27 @@ function seedFromEnv(db: Database.Database) {
   if (doctorUsername && doctorPassword) {
     const doctorName =
       process.env.DEMO_DOCTOR_FULL_NAME?.trim() || "Dr. Maya Chen";
-    const doctor = db
-      .prepare("SELECT id FROM doctors WHERE full_name = ?")
-      .get(doctorName) as { id: number } | undefined;
+    const doctorRows = await sql`
+      SELECT id FROM doctors WHERE full_name = ${doctorName}
+    `;
 
-    if (doctor) {
-      upsertUser(db, {
+    if (doctorRows[0]) {
+      const doctorId = Number(doctorRows[0].id);
+      await upsertUser(sql, {
         username: doctorUsername,
         password: doctorPassword,
         role: "doctor",
-        doctorId: doctor.id,
+        doctorId,
       });
 
       if (patientId) {
-        db.prepare(
-          `UPDATE appointments
-           SET doctor_id = ?
-           WHERE patient_id = ? AND provider_name = ? AND doctor_id IS NULL`,
-        ).run(doctor.id, patientId, doctorName);
+        await sql`
+          UPDATE appointments
+          SET doctor_id = ${doctorId}
+          WHERE patient_id = ${patientId}
+            AND provider_name = ${doctorName}
+            AND doctor_id IS NULL
+        `;
       }
     }
   }
@@ -604,252 +441,17 @@ function seedFromEnv(db: Database.Database) {
   const coordinatorUsername = process.env.DEMO_COORDINATOR_USERNAME?.trim();
   const coordinatorPassword = process.env.DEMO_COORDINATOR_PASSWORD?.trim();
   if (coordinatorUsername && coordinatorPassword) {
-    upsertUser(db, {
+    await upsertUser(sql, {
       username: coordinatorUsername,
       password: coordinatorPassword,
       role: "coordinator",
     });
   }
 
-  db.prepare(
-    "INSERT INTO meta (key, value) VALUES ('seeded', '1') ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-  ).run();
+  await upsertMeta(sql, "seeded", "1");
 }
 
-export function getDb() {
-  if (dbInstance) {
-    return dbInstance;
-  }
-
-  if (!fs.existsSync(DATA_DIR)) {
-    fs.mkdirSync(DATA_DIR, { recursive: true });
-  }
-
-  const db = new Database(DB_PATH);
-  db.pragma("journal_mode = WAL");
-  createSchema(db);
-  migrateSchema(db);
-  seedClinics(db);
-  seedDoctors(db);
-  seedFromEnv(db);
-  seedScaleDoctors(db);
-  seedServices(db);
-  dbInstance = db;
-  return db;
-}
-
-export function listPatients() {
-  return getDb()
-    .prepare("SELECT * FROM patients ORDER BY full_name ASC")
-    .all() as PatientRow[];
-}
-
-export function getPatient(id: number) {
-  return getDb()
-    .prepare("SELECT * FROM patients WHERE id = ?")
-    .get(id) as PatientRow | undefined;
-}
-
-export function listRecords(patientId?: number) {
-  if (patientId) {
-    return getDb()
-      .prepare(
-        "SELECT * FROM medical_records WHERE patient_id = ? ORDER BY recorded_at DESC",
-      )
-      .all(patientId) as MedicalRecordRow[];
-  }
-
-  return getDb()
-    .prepare("SELECT * FROM medical_records ORDER BY recorded_at DESC")
-    .all() as MedicalRecordRow[];
-}
-
-export function listAppointments(patientId?: number) {
-  if (patientId) {
-    return getDb()
-      .prepare(
-        "SELECT * FROM appointments WHERE patient_id = ? ORDER BY scheduled_at DESC",
-      )
-      .all(patientId) as AppointmentRow[];
-  }
-
-  return getDb()
-    .prepare("SELECT * FROM appointments ORDER BY scheduled_at DESC")
-    .all() as AppointmentRow[];
-}
-
-export function listDoctorAppointments(doctorId: number) {
-  return getDb()
-    .prepare(
-      `SELECT a.*, p.full_name AS patient_name
-       FROM appointments a
-       JOIN patients p ON p.id = a.patient_id
-       WHERE a.doctor_id = ?
-       ORDER BY a.scheduled_at DESC`,
-    )
-    .all(doctorId) as Array<AppointmentRow & { patient_name: string }>;
-}
-
-export function doctorCanAccessPatient(doctorId: number, patientId: number) {
-  const row = getDb()
-    .prepare(
-      `SELECT id FROM appointments
-       WHERE doctor_id = ? AND patient_id = ?
-       LIMIT 1`,
-    )
-    .get(doctorId, patientId) as { id: number } | undefined;
-  return Boolean(row);
-}
-
-export function listPrescriptions(patientId: number) {
-  return getDb()
-    .prepare(
-      "SELECT * FROM prescriptions WHERE patient_id = ? ORDER BY starts_on DESC",
-    )
-    .all(patientId) as PrescriptionRow[];
-}
-
-export function findUserByUsername(username: string) {
-  return getDb()
-    .prepare("SELECT * FROM users WHERE username = ?")
-    .get(username) as UserRow | undefined;
-}
-
-export function findUserById(id: number) {
-  return getDb()
-    .prepare("SELECT * FROM users WHERE id = ?")
-    .get(id) as UserRow | undefined;
-}
-
-export function listUsers() {
-  return getDb()
-    .prepare(
-      `SELECT u.id, u.username, u.role, u.patient_id, u.doctor_id, u.created_at,
-              p.full_name AS patient_name, d.full_name AS doctor_name
-       FROM users u
-       LEFT JOIN patients p ON p.id = u.patient_id
-       LEFT JOIN doctors d ON d.id = u.doctor_id
-       ORDER BY u.created_at DESC`,
-    )
-    .all() as Array<{
-    id: number;
-    username: string;
-    role: UserRole;
-    patient_id: number | null;
-    doctor_id: number | null;
-    created_at: string;
-    patient_name: string | null;
-    doctor_name: string | null;
-  }>;
-}
-
-export function listDoctors(category?: string) {
-  if (category && category !== "All") {
-    return getDb()
-      .prepare(
-        `SELECT * FROM doctors
-         WHERE category = ?
-         ORDER BY category ASC, full_name ASC`,
-      )
-      .all(category) as DoctorRow[];
-  }
-
-  return getDb()
-    .prepare("SELECT * FROM doctors ORDER BY category ASC, full_name ASC")
-    .all() as DoctorRow[];
-}
-
-export function searchDoctors(options?: {
-  query?: string;
-  category?: string;
-  clinicId?: number | null;
-  page?: number;
-  pageSize?: number;
-}) {
-  const query = options?.query?.trim() || "";
-  const category =
-    options?.category && options.category !== "All"
-      ? options.category.trim()
-      : "";
-  const clinicId = options?.clinicId && options.clinicId > 0 ? options.clinicId : null;
-  const pageSize = Math.min(Math.max(options?.pageSize || 10, 1), 50);
-  const page = Math.max(options?.page || 1, 1);
-  const offset = (page - 1) * pageSize;
-
-  const where: string[] = [];
-  const params: Array<string | number> = [];
-
-  if (clinicId) {
-    where.push("d.clinic_id = ?");
-    params.push(clinicId);
-  }
-
-  if (category) {
-    where.push("d.category = ?");
-    params.push(category);
-  }
-
-  if (query) {
-    where.push(
-      `(d.full_name LIKE ? OR d.specialty LIKE ? OR d.experience_summary LIKE ? OR d.education LIKE ? OR d.languages LIKE ? OR c.name LIKE ? OR c.city LIKE ?)`,
-    );
-    const like = `%${query}%`;
-    params.push(like, like, like, like, like, like, like);
-  }
-
-  const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
-  const db = getDb();
-
-  const total = (
-    db
-      .prepare(
-        `SELECT COUNT(*) AS count
-         FROM doctors d
-         LEFT JOIN clinics c ON c.id = d.clinic_id
-         ${whereSql}`,
-      )
-      .get(...params) as { count: number }
-  ).count;
-
-  const doctors = db
-    .prepare(
-      `SELECT d.*, c.name AS clinic_name, c.city AS clinic_city
-       FROM doctors d
-       LEFT JOIN clinics c ON c.id = d.clinic_id
-       ${whereSql}
-       ORDER BY c.name ASC, d.category ASC, d.full_name ASC
-       LIMIT ? OFFSET ?`,
-    )
-    .all(...params, pageSize, offset) as DoctorListItem[];
-
-  return {
-    doctors,
-    total,
-    page,
-    pageSize,
-    totalPages: Math.max(1, Math.ceil(total / pageSize)),
-  };
-}
-
-export function listClinics() {
-  return getDb()
-    .prepare(
-      `SELECT c.*, COUNT(d.id) AS doctor_count
-       FROM clinics c
-       LEFT JOIN doctors d ON d.clinic_id = c.id
-       GROUP BY c.id
-       ORDER BY c.name ASC`,
-    )
-    .all() as ClinicSummary[];
-}
-
-export function getClinic(id: number) {
-  return getDb()
-    .prepare("SELECT * FROM clinics WHERE id = ?")
-    .get(id) as ClinicRow | undefined;
-}
-
-function seedScaleDoctors(db: Database.Database) {
+async function seedScaleDoctors() {
   const raw = process.env.DEMO_SCALE_DOCTORS?.trim();
   if (!raw) {
     return;
@@ -860,19 +462,15 @@ function seedScaleDoctors(db: Database.Database) {
     return;
   }
 
-  const clinics = db
-    .prepare("SELECT id FROM clinics ORDER BY id ASC")
-    .all() as Array<{ id: number }>;
+  const sql = getSql();
+  const clinics = await sql`SELECT id FROM clinics ORDER BY id ASC`;
   if (clinics.length === 0) {
     return;
   }
 
-  const current = (
-    db.prepare("SELECT COUNT(*) AS count FROM doctors").get() as {
-      count: number;
-    }
-  ).count;
-
+  const [{ count: current }] = await sql`
+    SELECT COUNT(*)::int AS count FROM doctors
+  `;
   if (current >= target) {
     return;
   }
@@ -887,79 +485,58 @@ function seedScaleDoctors(db: Database.Database) {
     "Neurology",
   ];
 
-  const insert = db.prepare(
-    `INSERT INTO doctors (
-      full_name, clinic_id, category, specialty, years_experience,
-      experience_summary, education, languages, accepting_patients
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)`,
-  );
-
-  const tx = db.transaction(() => {
+  await sql.begin(async (tx) => {
     for (let i = current + 1; i <= target; i++) {
       const category = categories[i % categories.length];
-      insert.run(
-        `Dr. Scale ${i}`,
-        clinics[i % clinics.length].id,
-        category,
-        `${category} Specialist`,
-        3 + (i % 25),
-        `Scaled directory profile for doctor ${i} used to validate clinic filters and pagination.`,
-        "MD, Harbor University",
-        "English",
-      );
+      await tx`
+        INSERT INTO doctors (
+          full_name, clinic_id, category, specialty, years_experience,
+          experience_summary, education, languages, accepting_patients
+        ) VALUES (
+          ${`Dr. Scale ${i}`},
+          ${clinics[i % clinics.length].id},
+          ${category},
+          ${`${category} Specialist`},
+          ${3 + (i % 25)},
+          ${`Scaled directory profile for doctor ${i} used to validate clinic filters and pagination.`},
+          ${"MD, Harbor University"},
+          ${"English"},
+          ${true}
+        )
+      `;
     }
   });
-  tx();
 }
 
-export function getDoctor(id: number) {
-  return getDb()
-    .prepare("SELECT * FROM doctors WHERE id = ?")
-    .get(id) as DoctorRow | undefined;
-}
-
-export function listDoctorCategories() {
-  return getDb()
-    .prepare(
-      `SELECT category, COUNT(*) AS count
-       FROM doctors
-       GROUP BY category
-       ORDER BY category ASC`,
-    )
-    .all() as Array<{ category: string; count: number }>;
-}
-
-
-function seedServices(db: Database.Database) {
-  const seeded = db
-    .prepare("SELECT value FROM meta WHERE key = 'services_seeded'")
-    .get() as { value: string } | undefined;
-
-  if (seeded?.value === "1") {
+async function seedServices() {
+  const sql = getSql();
+  const seeded = await sql`
+    SELECT value FROM meta WHERE key = 'services_seeded'
+  `;
+  if (seeded[0]?.value === "1") {
     return;
   }
 
-  const count = (
-    db.prepare("SELECT COUNT(*) AS count FROM services").get() as {
-      count: number;
-    }
-  ).count;
-
+  const [{ count }] = await sql`SELECT COUNT(*)::int AS count FROM services`;
   if (count === 0) {
-    const doctors = db
-      .prepare("SELECT id, category, clinic_id, full_name FROM doctors ORDER BY id ASC")
-      .all() as Array<{
-      id: number;
-      category: string;
-      clinic_id: number | null;
-      full_name: string;
-    }>;
+    const doctors = await sql`
+      SELECT id, category, clinic_id, full_name FROM doctors ORDER BY id ASC
+    `;
 
-    const byCategory = new Map<string, typeof doctors>();
+    const byCategory = new Map<
+      string,
+      Array<{ id: number; category: string; clinic_id: number | null; full_name: string }>
+    >();
     for (const doctor of doctors) {
-      const list = byCategory.get(doctor.category) || [];
-      list.push(doctor);
-      byCategory.set(doctor.category, list);
+      const category = String(doctor.category);
+      const list = byCategory.get(category) || [];
+      list.push({
+        id: Number(doctor.id),
+        category,
+        clinic_id: doctor.clinic_id != null ? Number(doctor.clinic_id) : null,
+        full_name: String(doctor.full_name),
+      });
+      byCategory.set(category, list);
     }
 
     const catalog: Array<{
@@ -971,171 +548,768 @@ function seedServices(db: Database.Database) {
       {
         name: "Annual wellness exam",
         specialty: "Primary Care",
-        description: "Comprehensive preventive visit with vitals, labs review, and care planning.",
+        description:
+          "Comprehensive preventive visit with vitals, labs review, and care planning.",
         duration: 45,
       },
       {
         name: "Chronic care follow-up",
         specialty: "Primary Care",
-        description: "Ongoing management for hypertension, diabetes, and related conditions.",
+        description:
+          "Ongoing management for hypertension, diabetes, and related conditions.",
         duration: 30,
       },
       {
         name: "Cardiology consultation",
         specialty: "Cardiology",
-        description: "Evaluation for chest pain, heart rhythm concerns, and cardiovascular risk.",
+        description:
+          "Evaluation for chest pain, heart rhythm concerns, and cardiovascular risk.",
         duration: 40,
       },
       {
         name: "Heart failure management visit",
         specialty: "Cardiology",
-        description: "Medication titration and monitoring for heart-failure patients.",
+        description:
+          "Medication titration and monitoring for heart-failure patients.",
         duration: 35,
       },
       {
         name: "Skin check",
         specialty: "Dermatology",
-        description: "Full-body exam for moles, rashes, and early skin-cancer detection.",
+        description:
+          "Full-body exam for moles, rashes, and early skin-cancer detection.",
         duration: 30,
       },
       {
         name: "Acne treatment consult",
         specialty: "Dermatology",
-        description: "Assessment and treatment planning for inflammatory acne.",
+        description:
+          "Assessment and treatment planning for inflammatory acne.",
         duration: 25,
       },
       {
         name: "Well-child visit",
         specialty: "Pediatrics",
-        description: "Growth, development, and immunization review for children.",
+        description:
+          "Growth, development, and immunization review for children.",
         duration: 30,
       },
       {
         name: "Pediatric asthma review",
         specialty: "Pediatrics",
-        description: "Action-plan update and inhaler technique coaching for families.",
+        description:
+          "Action-plan update and inhaler technique coaching for families.",
         duration: 30,
       },
       {
         name: "Sports injury evaluation",
         specialty: "Orthopedics",
-        description: "Assessment of joint and soft-tissue injuries with rehab guidance.",
+        description:
+          "Assessment of joint and soft-tissue injuries with rehab guidance.",
         duration: 40,
       },
       {
         name: "Joint pain consultation",
         specialty: "Orthopedics",
-        description: "Workup for chronic joint pain and mobility limitations.",
+        description:
+          "Workup for chronic joint pain and mobility limitations.",
         duration: 35,
       },
       {
         name: "Initial psychiatry consult",
         specialty: "Mental Health",
-        description: "Diagnostic interview and treatment planning for mood or anxiety concerns.",
+        description:
+          "Diagnostic interview and treatment planning for mood or anxiety concerns.",
         duration: 50,
       },
       {
         name: "Medication management visit",
         specialty: "Mental Health",
-        description: "Follow-up for psychiatric medication response and side effects.",
+        description:
+          "Follow-up for psychiatric medication response and side effects.",
         duration: 25,
       },
       {
         name: "Migraine evaluation",
         specialty: "Neurology",
-        description: "History, trigger review, and preventive/rescue plan for migraine.",
+        description:
+          "History, trigger review, and preventive/rescue plan for migraine.",
         duration: 40,
       },
       {
         name: "Neurology follow-up",
         specialty: "Neurology",
-        description: "Ongoing review for neuropathy, headache, or seizure care plans.",
+        description:
+          "Ongoing review for neuropathy, headache, or seizure care plans.",
         duration: 30,
       },
     ];
 
-    const insertService = db.prepare(
-      `INSERT INTO services (name, specialty, description, duration_minutes, clinic_id)
-       VALUES (?, ?, ?, ?, ?)`,
-    );
-    const linkDoctor = db.prepare(
-      `INSERT OR IGNORE INTO service_doctors (service_id, doctor_id) VALUES (?, ?)`,
-    );
-
-    const tx = db.transaction(() => {
+    await sql.begin(async (tx) => {
       for (const item of catalog) {
         const pool = byCategory.get(item.specialty) || [];
         const clinicId = pool[0]?.clinic_id ?? null;
-        const result = insertService.run(
-          item.name,
-          item.specialty,
-          item.description,
-          item.duration,
-          clinicId,
-        );
-        const serviceId = Number(result.lastInsertRowid);
+        const [serviceRow] = await tx`
+          INSERT INTO services (name, specialty, description, duration_minutes, clinic_id)
+          VALUES (
+            ${item.name},
+            ${item.specialty},
+            ${item.description},
+            ${item.duration},
+            ${clinicId}
+          )
+          RETURNING id
+        `;
+        const serviceId = Number(serviceRow.id);
         const linked = pool.slice(0, Math.min(3, pool.length));
         for (const doctor of linked) {
-          linkDoctor.run(serviceId, doctor.id);
+          await tx`
+            INSERT INTO service_doctors (service_id, doctor_id)
+            VALUES (${serviceId}, ${doctor.id})
+            ON CONFLICT DO NOTHING
+          `;
         }
       }
     });
-    tx();
   }
 
-  db.prepare(
-    "INSERT INTO meta (key, value) VALUES ('services_seeded', '1') ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-  ).run();
+  await upsertMeta(sql, "services_seeded", "1");
 }
 
-export function listServiceSpecialties() {
-  return getDb()
-    .prepare(
-      `SELECT specialty, COUNT(*) AS count
-       FROM services
-       GROUP BY specialty
-       ORDER BY specialty ASC`,
+export async function ensureDb() {
+  if (!dbReady) {
+    dbReady = (async () => {
+      getSql();
+      await seedClinics();
+      await seedDoctors();
+      await seedFromEnv();
+      await seedScaleDoctors();
+      await seedServices();
+    })();
+  }
+  await dbReady;
+}
+
+export async function getDb() {
+  await ensureDb();
+}
+
+export async function listPatients() {
+  await ensureDb();
+  const sql = getSql();
+  const rows = await sql`SELECT * FROM patients ORDER BY full_name ASC`;
+  return serializeRows(rows) as PatientRow[];
+}
+
+export async function getPatient(id: number) {
+  await ensureDb();
+  const sql = getSql();
+  const rows = await sql`SELECT * FROM patients WHERE id = ${id}`;
+  return rows[0] ? (serializeRow(rows[0]) as PatientRow) : undefined;
+}
+
+export async function createPatient(data: {
+  fullName: string;
+  email: string;
+  phone?: string | null;
+  dateOfBirth: string;
+  bloodType?: string | null;
+  allergies?: string | null;
+  emergencyContact?: string | null;
+  notes?: string | null;
+  username?: string;
+  password?: string;
+}) {
+  await ensureDb();
+  const sql = getSql();
+
+  const [row] = await sql`
+    INSERT INTO patients (
+      full_name, email, phone, date_of_birth, blood_type,
+      allergies, emergency_contact, notes
+    ) VALUES (
+      ${data.fullName},
+      ${data.email},
+      ${data.phone ?? null},
+      ${data.dateOfBirth},
+      ${data.bloodType ?? null},
+      ${data.allergies ?? null},
+      ${data.emergencyContact ?? null},
+      ${data.notes ?? null}
     )
-    .all() as Array<{ specialty: string; count: number }>;
+    RETURNING id
+  `;
+
+  const patientId = Number(row.id);
+
+  if (data.username && data.password) {
+    const passwordHash = await bcrypt.hash(data.password, 12);
+    await sql`
+      INSERT INTO users (username, password_hash, role, patient_id)
+      VALUES (${data.username}, ${passwordHash}, ${"patient"}, ${patientId})
+    `;
+  }
+
+  return (await getPatient(patientId))!;
 }
 
-export function listDoctorsForFilter(options?: {
+export async function updatePatient(
+  id: number,
+  data: {
+    fullName: string;
+    email: string;
+    phone?: string | null;
+    dateOfBirth: string;
+    bloodType?: string | null;
+    allergies?: string | null;
+    emergencyContact?: string | null;
+    notes?: string | null;
+  },
+) {
+  await ensureDb();
+  const sql = getSql();
+  await sql`
+    UPDATE patients SET
+      full_name = ${data.fullName},
+      email = ${data.email},
+      phone = ${data.phone ?? null},
+      date_of_birth = ${data.dateOfBirth},
+      blood_type = ${data.bloodType ?? null},
+      allergies = ${data.allergies ?? null},
+      emergency_contact = ${data.emergencyContact ?? null},
+      notes = ${data.notes ?? null},
+      updated_at = NOW()
+    WHERE id = ${id}
+  `;
+  return getPatient(id);
+}
+
+export async function deletePatient(id: number) {
+  await ensureDb();
+  const sql = getSql();
+  await sql`DELETE FROM patients WHERE id = ${id}`;
+}
+
+export async function updatePatientProfile(
+  id: number,
+  data: {
+    phone?: string | null;
+    allergies?: string | null;
+    emergencyContact?: string | null;
+  },
+) {
+  await ensureDb();
+  const sql = getSql();
+  await sql`
+    UPDATE patients SET
+      phone = ${data.phone ?? null},
+      allergies = ${data.allergies ?? null},
+      emergency_contact = ${data.emergencyContact ?? null},
+      updated_at = NOW()
+    WHERE id = ${id}
+  `;
+  return getPatient(id);
+}
+
+export async function listRecords(patientId?: number) {
+  await ensureDb();
+  const sql = getSql();
+  const rows = patientId
+    ? await sql`
+        SELECT * FROM medical_records
+        WHERE patient_id = ${patientId}
+        ORDER BY recorded_at DESC
+      `
+    : await sql`SELECT * FROM medical_records ORDER BY recorded_at DESC`;
+  return serializeRows(rows) as MedicalRecordRow[];
+}
+
+export async function listRecordsWithPatientNames() {
+  await ensureDb();
+  const sql = getSql();
+  const rows = await sql`
+    SELECT r.*, p.full_name AS patient_name
+    FROM medical_records r
+    JOIN patients p ON p.id = r.patient_id
+    ORDER BY r.recorded_at DESC
+  `;
+  return serializeRows(rows) as Array<MedicalRecordRow & { patient_name: string }>;
+}
+
+export async function getRecord(id: number) {
+  await ensureDb();
+  const sql = getSql();
+  const rows = await sql`SELECT * FROM medical_records WHERE id = ${id}`;
+  return rows[0] ? (serializeRow(rows[0]) as MedicalRecordRow) : undefined;
+}
+
+export async function createRecord(data: {
+  patientId: number;
+  appointmentId?: number | null;
+  title: string;
+  recordType: string;
+  summary: string;
+  diagnosis?: string | null;
+  treatment?: string | null;
+  providerName?: string | null;
+  recordedAt: string;
+}) {
+  await ensureDb();
+  const sql = getSql();
+  const [row] = await sql`
+    INSERT INTO medical_records (
+      patient_id, appointment_id, title, record_type, summary, diagnosis,
+      treatment, provider_name, recorded_at
+    ) VALUES (
+      ${data.patientId},
+      ${data.appointmentId ?? null},
+      ${data.title},
+      ${data.recordType},
+      ${data.summary},
+      ${data.diagnosis ?? null},
+      ${data.treatment ?? null},
+      ${data.providerName ?? null},
+      ${data.recordedAt}
+    )
+    RETURNING id
+  `;
+  return getRecord(Number(row.id));
+}
+
+export async function deleteRecord(id: number) {
+  await ensureDb();
+  const sql = getSql();
+  await sql`DELETE FROM medical_records WHERE id = ${id}`;
+}
+
+export async function listAppointments(patientId?: number) {
+  await ensureDb();
+  const sql = getSql();
+  const rows = patientId
+    ? await sql`
+        SELECT * FROM appointments
+        WHERE patient_id = ${patientId}
+        ORDER BY scheduled_at DESC
+      `
+    : await sql`SELECT * FROM appointments ORDER BY scheduled_at DESC`;
+  return serializeRows(rows) as AppointmentRow[];
+}
+
+export async function listAppointmentsWithPatientNames() {
+  await ensureDb();
+  const sql = getSql();
+  const rows = await sql`
+    SELECT a.*, p.full_name AS patient_name
+    FROM appointments a
+    JOIN patients p ON p.id = a.patient_id
+    ORDER BY a.scheduled_at DESC
+  `;
+  return serializeRows(rows) as Array<AppointmentRow & { patient_name: string }>;
+}
+
+export async function getAppointment(id: number) {
+  await ensureDb();
+  const sql = getSql();
+  const rows = await sql`SELECT * FROM appointments WHERE id = ${id}`;
+  return rows[0] ? (serializeRow(rows[0]) as AppointmentRow) : undefined;
+}
+
+export async function createAppointment(data: {
+  patientId: number;
+  doctorId?: number | null;
+  providerName: string;
+  reason: string;
+  status: "scheduled" | "completed" | "cancelled";
+  scheduledAt: string;
+  notes?: string | null;
+}) {
+  await ensureDb();
+  const sql = getSql();
+  let providerName = data.providerName;
+  if (data.doctorId) {
+    const doctor = await getDoctor(data.doctorId);
+    if (doctor) {
+      providerName = doctor.full_name;
+    }
+  }
+
+  const [row] = await sql`
+    INSERT INTO appointments (
+      patient_id, doctor_id, provider_name, reason, status, scheduled_at, notes
+    ) VALUES (
+      ${data.patientId},
+      ${data.doctorId ?? null},
+      ${providerName},
+      ${data.reason},
+      ${data.status},
+      ${data.scheduledAt},
+      ${data.notes ?? null}
+    )
+    RETURNING id
+  `;
+  return getAppointment(Number(row.id));
+}
+
+export async function updateAppointmentStatus(
+  id: number,
+  status: "scheduled" | "completed" | "cancelled",
+) {
+  await ensureDb();
+  const sql = getSql();
+  await sql`UPDATE appointments SET status = ${status} WHERE id = ${id}`;
+}
+
+export async function deleteAppointment(id: number) {
+  await ensureDb();
+  const sql = getSql();
+  await sql`DELETE FROM appointments WHERE id = ${id}`;
+}
+
+export async function listDoctorAppointments(doctorId: number) {
+  await ensureDb();
+  const sql = getSql();
+  const rows = await sql`
+    SELECT a.*, p.full_name AS patient_name
+    FROM appointments a
+    JOIN patients p ON p.id = a.patient_id
+    WHERE a.doctor_id = ${doctorId}
+    ORDER BY a.scheduled_at DESC
+  `;
+  return serializeRows(rows) as Array<AppointmentRow & { patient_name: string }>;
+}
+
+export async function doctorCanAccessPatient(
+  doctorId: number,
+  patientId: number,
+) {
+  await ensureDb();
+  const sql = getSql();
+  const rows = await sql`
+    SELECT id FROM appointments
+    WHERE doctor_id = ${doctorId} AND patient_id = ${patientId}
+    LIMIT 1
+  `;
+  return rows.length > 0;
+}
+
+export async function findAppointmentForDoctorPatient(
+  appointmentId: number,
+  doctorId: number,
+  patientId: number,
+) {
+  await ensureDb();
+  const sql = getSql();
+  const rows = await sql`
+    SELECT id FROM appointments
+    WHERE id = ${appointmentId}
+      AND doctor_id = ${doctorId}
+      AND patient_id = ${patientId}
+  `;
+  return rows[0] ? Number(rows[0].id) : undefined;
+}
+
+export async function listPrescriptions(patientId: number) {
+  await ensureDb();
+  const sql = getSql();
+  const rows = await sql`
+    SELECT * FROM prescriptions
+    WHERE patient_id = ${patientId}
+    ORDER BY starts_on DESC
+  `;
+  return serializeRows(rows) as PrescriptionRow[];
+}
+
+export async function findUserByUsername(username: string) {
+  await ensureDb();
+  const sql = getSql();
+  const rows = await sql`SELECT * FROM users WHERE username = ${username}`;
+  return rows[0] ? (serializeRow(rows[0]) as UserRow) : undefined;
+}
+
+export async function findUserById(id: number) {
+  await ensureDb();
+  const sql = getSql();
+  const rows = await sql`SELECT * FROM users WHERE id = ${id}`;
+  return rows[0] ? (serializeRow(rows[0]) as UserRow) : undefined;
+}
+
+export async function listUsers() {
+  await ensureDb();
+  const sql = getSql();
+  const rows = await sql`
+    SELECT u.id, u.username, u.role, u.patient_id, u.doctor_id, u.created_at,
+           p.full_name AS patient_name, d.full_name AS doctor_name
+    FROM users u
+    LEFT JOIN patients p ON p.id = u.patient_id
+    LEFT JOIN doctors d ON d.id = u.doctor_id
+    ORDER BY u.created_at DESC
+  `;
+  return serializeRows(rows) as Array<{
+    id: number;
+    username: string;
+    role: UserRole;
+    patient_id: number | null;
+    doctor_id: number | null;
+    created_at: string;
+    patient_name: string | null;
+    doctor_name: string | null;
+  }>;
+}
+
+export async function createPatientUser(
+  username: string,
+  passwordHash: string,
+  patientId: number,
+) {
+  await ensureDb();
+  const sql = getSql();
+  const [row] = await sql`
+    INSERT INTO users (username, password_hash, role, patient_id)
+    VALUES (${username}, ${passwordHash}, ${"patient"}, ${patientId})
+    RETURNING id
+  `;
+  return Number(row.id);
+}
+
+export async function listDoctors(category?: string) {
+  await ensureDb();
+  const sql = getSql();
+  const rows =
+    category && category !== "All"
+      ? await sql`
+          SELECT ${sql.unsafe(DOCTOR_SELECT)}
+          FROM doctors d
+          WHERE d.category = ${category}
+          ORDER BY d.category ASC, d.full_name ASC
+        `
+      : await sql`
+          SELECT ${sql.unsafe(DOCTOR_SELECT)}
+          FROM doctors d
+          ORDER BY d.category ASC, d.full_name ASC
+        `;
+  return serializeRows(rows) as DoctorRow[];
+}
+
+export async function searchDoctors(options?: {
+  query?: string;
+  category?: string;
+  clinicId?: number | null;
+  page?: number;
+  pageSize?: number;
+}) {
+  await ensureDb();
+  const sql = getSql();
+
+  const query = options?.query?.trim() || "";
+  const category =
+    options?.category && options.category !== "All"
+      ? options.category.trim()
+      : "";
+  const clinicId =
+    options?.clinicId && options.clinicId > 0 ? options.clinicId : null;
+  const pageSize = Math.min(Math.max(options?.pageSize || 10, 1), 50);
+  const page = Math.max(options?.page || 1, 1);
+  const offset = (page - 1) * pageSize;
+
+  const conditions = [sql`TRUE`];
+  if (clinicId) {
+    conditions.push(sql`d.clinic_id = ${clinicId}`);
+  }
+  if (category) {
+    conditions.push(sql`d.category = ${category}`);
+  }
+  if (query) {
+    const like = `%${query}%`;
+    conditions.push(sql`(
+      d.full_name ILIKE ${like}
+      OR d.specialty ILIKE ${like}
+      OR d.experience_summary ILIKE ${like}
+      OR d.education ILIKE ${like}
+      OR d.languages ILIKE ${like}
+      OR c.name ILIKE ${like}
+      OR c.city ILIKE ${like}
+    )`);
+  }
+  const whereClause = conditions.reduce(
+    (accumulator, condition) => sql`${accumulator} AND ${condition}`,
+  );
+
+  const [{ count: total }] = await sql`
+    SELECT COUNT(*)::int AS count
+    FROM doctors d
+    LEFT JOIN clinics c ON c.id = d.clinic_id
+    WHERE ${whereClause}
+  `;
+
+  const doctors = await sql`
+    SELECT ${sql.unsafe(DOCTOR_SELECT)}, c.name AS clinic_name, c.city AS clinic_city
+    FROM doctors d
+    LEFT JOIN clinics c ON c.id = d.clinic_id
+    WHERE ${whereClause}
+    ORDER BY c.name ASC, d.category ASC, d.full_name ASC
+    LIMIT ${pageSize} OFFSET ${offset}
+  `;
+
+  return {
+    doctors: serializeRows(doctors) as DoctorListItem[],
+    total,
+    page,
+    pageSize,
+    totalPages: Math.max(1, Math.ceil(total / pageSize)),
+  };
+}
+
+export async function getDoctor(id: number) {
+  await ensureDb();
+  const sql = getSql();
+  const rows = await sql`
+    SELECT ${sql.unsafe(DOCTOR_SELECT)}
+    FROM doctors d
+    WHERE d.id = ${id}
+  `;
+  return rows[0] ? (serializeRow(rows[0]) as DoctorRow) : undefined;
+}
+
+export async function createDoctor(data: {
+  fullName: string;
+  clinicId: number | null;
+  category: string;
+  specialty: string;
+  yearsExperience: number;
+  experienceSummary: string;
+  education?: string | null;
+  languages?: string | null;
+  acceptingPatients?: boolean;
+}) {
+  await ensureDb();
+  const sql = getSql();
+  const [row] = await sql`
+    INSERT INTO doctors (
+      full_name, clinic_id, category, specialty, years_experience,
+      experience_summary, education, languages, accepting_patients
+    ) VALUES (
+      ${data.fullName},
+      ${data.clinicId},
+      ${data.category},
+      ${data.specialty},
+      ${data.yearsExperience},
+      ${data.experienceSummary},
+      ${data.education ?? null},
+      ${data.languages ?? null},
+      ${data.acceptingPatients !== false}
+    )
+    RETURNING id
+  `;
+  return getDoctor(Number(row.id));
+}
+
+export async function deleteDoctor(id: number) {
+  await ensureDb();
+  const sql = getSql();
+  await sql`DELETE FROM doctors WHERE id = ${id}`;
+}
+
+export async function listDoctorCategories() {
+  await ensureDb();
+  const sql = getSql();
+  const rows = await sql`
+    SELECT category, COUNT(*)::int AS count
+    FROM doctors
+    GROUP BY category
+    ORDER BY category ASC
+  `;
+  return serializeRows(rows) as Array<{ category: string; count: number }>;
+}
+
+export async function listClinics() {
+  await ensureDb();
+  const sql = getSql();
+  const rows = await sql`
+    SELECT c.*, COUNT(d.id)::int AS doctor_count
+    FROM clinics c
+    LEFT JOIN doctors d ON d.clinic_id = c.id
+    GROUP BY c.id
+    ORDER BY c.name ASC
+  `;
+  return serializeRows(rows) as ClinicSummary[];
+}
+
+export async function getClinic(id: number) {
+  await ensureDb();
+  const sql = getSql();
+  const rows = await sql`SELECT * FROM clinics WHERE id = ${id}`;
+  return rows[0] ? (serializeRow(rows[0]) as ClinicRow) : undefined;
+}
+
+export async function createClinic(data: {
+  name: string;
+  city: string;
+  address: string;
+  phone?: string | null;
+  description?: string | null;
+}) {
+  await ensureDb();
+  const sql = getSql();
+  const [row] = await sql`
+    INSERT INTO clinics (name, city, address, phone, description)
+    VALUES (
+      ${data.name},
+      ${data.city},
+      ${data.address},
+      ${data.phone ?? null},
+      ${data.description ?? null}
+    )
+    RETURNING id
+  `;
+  return getClinic(Number(row.id));
+}
+
+export async function deleteClinic(id: number) {
+  await ensureDb();
+  const sql = getSql();
+  await sql`DELETE FROM clinics WHERE id = ${id}`;
+}
+
+export async function listServiceSpecialties() {
+  await ensureDb();
+  const sql = getSql();
+  const rows = await sql`
+    SELECT specialty, COUNT(*)::int AS count
+    FROM services
+    GROUP BY specialty
+    ORDER BY specialty ASC
+  `;
+  return serializeRows(rows) as Array<{ specialty: string; count: number }>;
+}
+
+export async function listDoctorsForFilter(options?: {
   specialty?: string;
   limit?: number;
 }) {
+  await ensureDb();
+  const sql = getSql();
   const specialty =
     options?.specialty && options.specialty !== "All"
       ? options.specialty.trim()
       : "";
   const limit = Math.min(Math.max(options?.limit || 200, 1), 500);
-  const db = getDb();
 
-  if (specialty) {
-    return db
-      .prepare(
-        `SELECT id, full_name, category, specialty, clinic_id
-         FROM doctors
-         WHERE category = ?
-         ORDER BY full_name ASC
-         LIMIT ?`,
-      )
-      .all(specialty, limit) as Array<{
-      id: number;
-      full_name: string;
-      category: string;
-      specialty: string;
-      clinic_id: number | null;
-    }>;
-  }
+  const rows = specialty
+    ? await sql`
+        SELECT id, full_name, category, specialty, clinic_id
+        FROM doctors
+        WHERE category = ${specialty}
+        ORDER BY full_name ASC
+        LIMIT ${limit}
+      `
+    : await sql`
+        SELECT id, full_name, category, specialty, clinic_id
+        FROM doctors
+        ORDER BY full_name ASC
+        LIMIT ${limit}
+      `;
 
-  return db
-    .prepare(
-      `SELECT id, full_name, category, specialty, clinic_id
-       FROM doctors
-       ORDER BY full_name ASC
-       LIMIT ?`,
-    )
-    .all(limit) as Array<{
+  return serializeRows(rows) as Array<{
     id: number;
     full_name: string;
     category: string;
@@ -1144,7 +1318,7 @@ export function listDoctorsForFilter(options?: {
   }>;
 }
 
-export function searchServices(options?: {
+export async function searchServices(options?: {
   query?: string;
   specialty?: string;
   doctorId?: number | null;
@@ -1152,86 +1326,80 @@ export function searchServices(options?: {
   page?: number;
   pageSize?: number;
 }) {
+  await ensureDb();
+  const sql = getSql();
+
   const query = options?.query?.trim() || "";
   const specialty =
     options?.specialty && options.specialty !== "All"
       ? options.specialty.trim()
       : "";
-  const doctorId = options?.doctorId && options.doctorId > 0 ? options.doctorId : null;
-  const clinicId = options?.clinicId && options.clinicId > 0 ? options.clinicId : null;
+  const doctorId =
+    options?.doctorId && options.doctorId > 0 ? options.doctorId : null;
+  const clinicId =
+    options?.clinicId && options.clinicId > 0 ? options.clinicId : null;
   const pageSize = Math.min(Math.max(options?.pageSize || 10, 1), 50);
   const page = Math.max(options?.page || 1, 1);
   const offset = (page - 1) * pageSize;
 
-  const where: string[] = [];
-  const params: Array<string | number> = [];
-
+  const conditions = [sql`TRUE`];
   if (specialty) {
-    where.push("s.specialty = ?");
-    params.push(specialty);
+    conditions.push(sql`s.specialty = ${specialty}`);
   }
   if (clinicId) {
-    where.push("s.clinic_id = ?");
-    params.push(clinicId);
+    conditions.push(sql`s.clinic_id = ${clinicId}`);
   }
   if (doctorId) {
-    where.push(
-      `EXISTS (
-        SELECT 1 FROM service_doctors sd
-        WHERE sd.service_id = s.id AND sd.doctor_id = ?
-      )`,
-    );
-    params.push(doctorId);
+    conditions.push(sql`EXISTS (
+      SELECT 1 FROM service_doctors sd
+      WHERE sd.service_id = s.id AND sd.doctor_id = ${doctorId}
+    )`);
   }
   if (query) {
-    where.push(
-      `(s.name LIKE ? OR s.description LIKE ? OR s.specialty LIKE ? OR c.name LIKE ?)`,
-    );
     const like = `%${query}%`;
-    params.push(like, like, like, like);
+    conditions.push(sql`(
+      s.name ILIKE ${like}
+      OR s.description ILIKE ${like}
+      OR s.specialty ILIKE ${like}
+      OR c.name ILIKE ${like}
+    )`);
   }
+  const whereClause = conditions.reduce(
+    (accumulator, condition) => sql`${accumulator} AND ${condition}`,
+  );
 
-  const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
-  const db = getDb();
+  const [{ count: total }] = await sql`
+    SELECT COUNT(*)::int AS count
+    FROM services s
+    LEFT JOIN clinics c ON c.id = s.clinic_id
+    WHERE ${whereClause}
+  `;
 
-  const total = (
-    db
-      .prepare(
-        `SELECT COUNT(*) AS count
-         FROM services s
-         LEFT JOIN clinics c ON c.id = s.clinic_id
-         ${whereSql}`,
-      )
-      .get(...params) as { count: number }
-  ).count;
-
-  const services = db
-    .prepare(
-      `SELECT
-         s.*,
-         c.name AS clinic_name,
-         COALESCE((
-           SELECT GROUP_CONCAT(d.full_name, ', ')
-           FROM service_doctors sd
-           JOIN doctors d ON d.id = sd.doctor_id
-           WHERE sd.service_id = s.id
-         ), '') AS doctor_names,
-         COALESCE((
-           SELECT GROUP_CONCAT(d.id, ',')
-           FROM service_doctors sd
-           JOIN doctors d ON d.id = sd.doctor_id
-           WHERE sd.service_id = s.id
-         ), '') AS doctor_ids
-       FROM services s
-       LEFT JOIN clinics c ON c.id = s.clinic_id
-       ${whereSql}
-       ORDER BY s.specialty ASC, s.name ASC
-       LIMIT ? OFFSET ?`,
-    )
-    .all(...params, pageSize, offset) as ServiceListItem[];
+  const serviceRows = await sql`
+    SELECT
+      s.*,
+      c.name AS clinic_name,
+      COALESCE((
+        SELECT STRING_AGG(d.full_name, ', ' ORDER BY d.full_name)
+        FROM service_doctors sd
+        JOIN doctors d ON d.id = sd.doctor_id
+        WHERE sd.service_id = s.id
+      ), '') AS doctor_names,
+      COALESCE((
+        SELECT STRING_AGG(d.id::text, ',' ORDER BY d.full_name)
+        FROM service_doctors sd
+        JOIN doctors d ON d.id = sd.doctor_id
+        WHERE sd.service_id = s.id
+      ), '') AS doctor_ids
+    FROM services s
+    LEFT JOIN clinics c ON c.id = s.clinic_id
+    WHERE ${whereClause}
+    ORDER BY s.specialty ASC, s.name ASC
+    LIMIT ${pageSize} OFFSET ${offset}
+  `;
 
   return {
-    services,
+    services: serializeRows(serviceRows) as ServiceListItem[],
     total,
     page,
     pageSize,
@@ -1239,48 +1407,72 @@ export function searchServices(options?: {
   };
 }
 
-const SERVICE_LIST_SELECT = `SELECT
-   s.*,
-   c.name AS clinic_name,
-   COALESCE((
-     SELECT GROUP_CONCAT(d.full_name, ', ')
-     FROM service_doctors sd
-     JOIN doctors d ON d.id = sd.doctor_id
-     WHERE sd.service_id = s.id
-   ), '') AS doctor_names,
-   COALESCE((
-     SELECT GROUP_CONCAT(d.id, ',')
-     FROM service_doctors sd
-     JOIN doctors d ON d.id = sd.doctor_id
-     WHERE sd.service_id = s.id
-   ), '') AS doctor_ids
- FROM services s
- LEFT JOIN clinics c ON c.id = s.clinic_id`;
-
-export function getService(id: number) {
-  return getDb()
-    .prepare("SELECT * FROM services WHERE id = ?")
-    .get(id) as ServiceRow | undefined;
+export async function getService(id: number) {
+  await ensureDb();
+  const sql = getSql();
+  const rows = await sql`SELECT * FROM services WHERE id = ${id}`;
+  return rows[0] ? (serializeRow(rows[0]) as ServiceRow) : undefined;
 }
 
-export function getServiceById(id: number) {
-  return getDb()
-    .prepare(`${SERVICE_LIST_SELECT} WHERE s.id = ?`)
-    .get(id) as ServiceListItem | undefined;
+export async function getServiceById(id: number) {
+  await ensureDb();
+  const sql = getSql();
+  const rows = await sql`
+    SELECT
+      s.*,
+      c.name AS clinic_name,
+      COALESCE((
+        SELECT STRING_AGG(d.full_name, ', ' ORDER BY d.full_name)
+        FROM service_doctors sd
+        JOIN doctors d ON d.id = sd.doctor_id
+        WHERE sd.service_id = s.id
+      ), '') AS doctor_names,
+      COALESCE((
+        SELECT STRING_AGG(d.id::text, ',' ORDER BY d.full_name)
+        FROM service_doctors sd
+        JOIN doctors d ON d.id = sd.doctor_id
+        WHERE sd.service_id = s.id
+      ), '') AS doctor_ids
+    FROM services s
+    LEFT JOIN clinics c ON c.id = s.clinic_id
+    WHERE s.id = ${id}
+  `;
+  return rows[0] ? (serializeRow(rows[0]) as ServiceListItem) : undefined;
 }
 
-export function listServices() {
-  return getDb()
-    .prepare(`${SERVICE_LIST_SELECT} ORDER BY s.specialty ASC, s.name ASC`)
-    .all() as ServiceListItem[];
+export async function listServices() {
+  await ensureDb();
+  const sql = getSql();
+  const rows = await sql`
+    SELECT
+      s.*,
+      c.name AS clinic_name,
+      COALESCE((
+        SELECT STRING_AGG(d.full_name, ', ' ORDER BY d.full_name)
+        FROM service_doctors sd
+        JOIN doctors d ON d.id = sd.doctor_id
+        WHERE sd.service_id = s.id
+      ), '') AS doctor_names,
+      COALESCE((
+        SELECT STRING_AGG(d.id::text, ',' ORDER BY d.full_name)
+        FROM service_doctors sd
+        JOIN doctors d ON d.id = sd.doctor_id
+        WHERE sd.service_id = s.id
+      ), '') AS doctor_ids
+    FROM services s
+    LEFT JOIN clinics c ON c.id = s.clinic_id
+    ORDER BY s.specialty ASC, s.name ASC
+  `;
+  return serializeRows(rows) as ServiceListItem[];
 }
 
-export function listServiceDoctorIds(serviceId: number) {
-  return (
-    getDb()
-      .prepare("SELECT doctor_id FROM service_doctors WHERE service_id = ?")
-      .all(serviceId) as Array<{ doctor_id: number }>
-  ).map((row) => row.doctor_id);
+export async function listServiceDoctorIds(serviceId: number) {
+  await ensureDb();
+  const sql = getSql();
+  const rows = await sql`
+    SELECT doctor_id FROM service_doctors WHERE service_id = ${serviceId}
+  `;
+  return rows.map((row) => Number(row.doctor_id));
 }
 
 type ServiceWriteInput = {
@@ -1292,122 +1484,106 @@ type ServiceWriteInput = {
   doctorIds: number[];
 };
 
-function resolveServiceClinicId(
-  db: Database.Database,
+async function resolveServiceClinicId(
   clinicId: number | null | undefined,
   doctorIds: number[],
 ) {
   if (clinicId) {
     return clinicId;
   }
-
   if (!doctorIds.length) {
     return null;
   }
-
-  const doctor = db
-    .prepare("SELECT clinic_id FROM doctors WHERE id = ?")
-    .get(doctorIds[0]) as { clinic_id: number | null } | undefined;
-
-  return doctor?.clinic_id ?? null;
+  const sql = getSql();
+  const rows = await sql`
+    SELECT clinic_id FROM doctors WHERE id = ${doctorIds[0]}
+  `;
+  return rows[0]?.clinic_id != null ? Number(rows[0].clinic_id) : null;
 }
 
-function replaceServiceDoctors(
-  db: Database.Database,
+async function replaceServiceDoctors(
   serviceId: number,
   doctorIds: number[],
 ) {
-  db.prepare("DELETE FROM service_doctors WHERE service_id = ?").run(serviceId);
-  const link = db.prepare(
-    `INSERT OR IGNORE INTO service_doctors (service_id, doctor_id) VALUES (?, ?)`,
-  );
+  const sql = getSql();
+  await sql`DELETE FROM service_doctors WHERE service_id = ${serviceId}`;
   for (const doctorId of doctorIds) {
-    link.run(serviceId, doctorId);
+    await sql`
+      INSERT INTO service_doctors (service_id, doctor_id)
+      VALUES (${serviceId}, ${doctorId})
+      ON CONFLICT DO NOTHING
+    `;
   }
 }
 
-export function createService(input: ServiceWriteInput) {
-  const db = getDb();
-  const clinicId = resolveServiceClinicId(db, input.clinicId, input.doctorIds);
-  const result = db
-    .prepare(
-      `INSERT INTO services (name, specialty, description, duration_minutes, clinic_id)
-       VALUES (?, ?, ?, ?, ?)`,
+export async function createService(input: ServiceWriteInput) {
+  await ensureDb();
+  const sql = getSql();
+  const clinicId = await resolveServiceClinicId(input.clinicId, input.doctorIds);
+  const [row] = await sql`
+    INSERT INTO services (name, specialty, description, duration_minutes, clinic_id)
+    VALUES (
+      ${input.name},
+      ${input.specialty},
+      ${input.description},
+      ${input.durationMinutes ?? null},
+      ${clinicId}
     )
-    .run(
-      input.name,
-      input.specialty,
-      input.description,
-      input.durationMinutes ?? null,
-      clinicId,
-    );
-  const id = Number(result.lastInsertRowid);
-  replaceServiceDoctors(db, id, input.doctorIds);
+    RETURNING id
+  `;
+  const id = Number(row.id);
+  await replaceServiceDoctors(id, input.doctorIds);
   return id;
 }
 
-export function updateService(id: number, input: ServiceWriteInput) {
-  const db = getDb();
-  const clinicId = resolveServiceClinicId(db, input.clinicId, input.doctorIds);
-  db.prepare(
-    `UPDATE services
-     SET name = ?, specialty = ?, description = ?, duration_minutes = ?,
-         clinic_id = ?, updated_at = datetime('now')
-     WHERE id = ?`,
-  ).run(
-    input.name,
-    input.specialty,
-    input.description,
-    input.durationMinutes ?? null,
-    clinicId,
-    id,
-  );
-  replaceServiceDoctors(db, id, input.doctorIds);
+export async function updateService(id: number, input: ServiceWriteInput) {
+  await ensureDb();
+  const sql = getSql();
+  const clinicId = await resolveServiceClinicId(input.clinicId, input.doctorIds);
+  await sql`
+    UPDATE services
+    SET name = ${input.name},
+        specialty = ${input.specialty},
+        description = ${input.description},
+        duration_minutes = ${input.durationMinutes ?? null},
+        clinic_id = ${clinicId},
+        updated_at = NOW()
+    WHERE id = ${id}
+  `;
+  await replaceServiceDoctors(id, input.doctorIds);
 }
 
-export function deleteService(id: number) {
-  getDb().prepare("DELETE FROM services WHERE id = ?").run(id);
+export async function deleteService(id: number) {
+  await ensureDb();
+  const sql = getSql();
+  await sql`DELETE FROM services WHERE id = ${id}`;
 }
 
-export function getDashboardStats() {
-  const db = getDb();
-  const patients = (
-    db.prepare("SELECT COUNT(*) AS count FROM patients").get() as {
-      count: number;
-    }
-  ).count;
-  const records = (
-    db.prepare("SELECT COUNT(*) AS count FROM medical_records").get() as {
-      count: number;
-    }
-  ).count;
-  const appointments = (
-    db
-      .prepare(
-        "SELECT COUNT(*) AS count FROM appointments WHERE status = 'scheduled'",
-      )
-      .get() as { count: number }
-  ).count;
-  const users = (
-    db.prepare("SELECT COUNT(*) AS count FROM users").get() as {
-      count: number;
-    }
-  ).count;
-  const doctors = (
-    db.prepare("SELECT COUNT(*) AS count FROM doctors").get() as {
-      count: number;
-    }
-  ).count;
-  const clinics = (
-    db.prepare("SELECT COUNT(*) AS count FROM clinics").get() as {
-      count: number;
-    }
-  ).count;
-  const services = (
-    db.prepare("SELECT COUNT(*) AS count FROM services").get() as {
-      count: number;
-    }
-  ).count;
+export async function getDashboardStats() {
+  await ensureDb();
+  const sql = getSql();
+
+  const [{ count: patients }] = await sql`
+    SELECT COUNT(*)::int AS count FROM patients
+  `;
+  const [{ count: records }] = await sql`
+    SELECT COUNT(*)::int AS count FROM medical_records
+  `;
+  const [{ count: appointments }] = await sql`
+    SELECT COUNT(*)::int AS count FROM appointments WHERE status = 'scheduled'
+  `;
+  const [{ count: users }] = await sql`
+    SELECT COUNT(*)::int AS count FROM users
+  `;
+  const [{ count: doctors }] = await sql`
+    SELECT COUNT(*)::int AS count FROM doctors
+  `;
+  const [{ count: clinics }] = await sql`
+    SELECT COUNT(*)::int AS count FROM clinics
+  `;
+  const [{ count: services }] = await sql`
+    SELECT COUNT(*)::int AS count FROM services
+  `;
 
   return { patients, records, appointments, users, doctors, clinics, services };
 }
