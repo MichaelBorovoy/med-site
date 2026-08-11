@@ -48,6 +48,7 @@ export const appointmentSchema = z.object({
 
 export const doctorSchema = z.object({
   fullName: z.string().trim().min(1).max(120),
+  clinicId: z.coerce.number().int().positive(),
   category: z.string().trim().min(1).max(80),
   specialty: z.string().trim().min(1).max(120),
   yearsExperience: z.coerce.number().int().min(0).max(80),
@@ -55,6 +56,14 @@ export const doctorSchema = z.object({
   education: z.string().trim().max(500).optional().or(z.literal("")),
   languages: z.string().trim().max(200).optional().or(z.literal("")),
   acceptingPatients: z.boolean().optional().default(true),
+});
+
+export const clinicSchema = z.object({
+  name: z.string().trim().min(1).max(160),
+  city: z.string().trim().min(1).max(120),
+  address: z.string().trim().min(1).max(240),
+  phone: z.string().trim().max(40).optional().or(z.literal("")),
+  description: z.string().trim().max(2000).optional().or(z.literal("")),
 });
 
 export const userAccountSchema = z.object({

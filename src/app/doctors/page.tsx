@@ -1,30 +1,82 @@
+import { Suspense } from "react";
 import Link from "next/link";
 import { DoctorsDirectory } from "@/components/doctors/DoctorsDirectory";
-import { getDb, listDoctorCategories, listDoctors } from "@/lib/db";
+import { getSession } from "@/lib/auth";
+import {
+  getDb,
+  listClinics,
+  listDoctorCategories,
+  searchDoctors,
+} from "@/lib/db";
+import { homeForRole } from "@/lib/permissions";
 
 export const dynamic = "force-dynamic";
 
-export default async function PublicDoctorsPage() {
+type SearchParams = Promise<{
+  q?: string;
+  category?: string;
+  clinic?: string;
+  page?: string;
+}>;
+
+export default async function PublicDoctorsPage({
+  searchParams,
+}: {
+  searchParams: SearchParams;
+}) {
   getDb();
-  const doctors = listDoctors();
+  const session = await getSession();
+  const params = await searchParams;
+  const query = params.q?.trim() || "";
+  const category = params.category?.trim() || "All";
+  const clinicId = Number(params.clinic || "0") || 0;
+  const page = Number(params.page || "1") || 1;
+
+  const result = searchDoctors({
+    query,
+    category,
+    clinicId,
+    page,
+    pageSize: 10,
+  });
   const categories = listDoctorCategories();
+  const clinics = listClinics();
 
   return (
     <div className="min-h-screen">
       <header className="border-b border-[var(--line)] bg-[var(--panel)]/90 backdrop-blur">
         <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-4 px-4 py-4">
           <div>
-            <p className="font-[family-name:var(--font-display)] text-2xl tracking-tight text-[var(--ink)]">
+            <Link
+              href="/"
+              className="font-[family-name:var(--font-display)] text-2xl tracking-tight text-[var(--ink)]"
+            >
               HarborCare
+            </Link>
+            <p className="text-sm text-[var(--muted)]">
+              Public doctor directory
             </p>
-            <p className="text-sm text-[var(--muted)]">Doctor directory</p>
           </div>
-          <Link
-            href="/login"
-            className="rounded-md bg-[var(--accent)] px-3 py-1.5 text-sm font-medium text-white hover:bg-[var(--accent-strong)]"
-          >
-            Sign in
-          </Link>
+          <div className="flex items-center gap-3">
+            <Link
+              href="/clinics"
+              className="rounded-md px-3 py-1.5 text-sm text-[var(--ink-soft)] hover:bg-white"
+            >
+              Clinics
+            </Link>
+            <Link
+              href="/"
+              className="rounded-md px-3 py-1.5 text-sm text-[var(--ink-soft)] hover:bg-white"
+            >
+              Home
+            </Link>
+            <Link
+              href={session ? homeForRole(session.role) : "/login"}
+              className="rounded-md bg-[var(--accent)] px-3 py-1.5 text-sm font-medium text-white hover:bg-[var(--accent-strong)]"
+            >
+              {session ? "Open portal" : "Sign in"}
+            </Link>
+          </div>
         </div>
       </header>
 
@@ -34,11 +86,24 @@ export default async function PublicDoctorsPage() {
             Meet the care team
           </h1>
           <p className="mt-2 max-w-2xl text-[var(--muted)]">
-            Explore doctors by category and learn about their clinical
-            experience.
+            Browse by clinic and category. Results are paginated for large
+            networks (for example 1000 doctors across 5 clinics).
           </p>
         </div>
-        <DoctorsDirectory doctors={doctors} categories={categories} />
+        <Suspense fallback={<p className="text-[var(--muted)]">Loading doctors…</p>}>
+          <DoctorsDirectory
+            doctors={result.doctors}
+            categories={categories}
+            clinics={clinics}
+            total={result.total}
+            page={result.page}
+            pageSize={result.pageSize}
+            totalPages={result.totalPages}
+            initialQuery={query}
+            initialCategory={category}
+            initialClinicId={clinicId ? String(clinicId) : ""}
+          />
+        </Suspense>
       </main>
     </div>
   );

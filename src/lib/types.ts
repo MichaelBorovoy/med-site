@@ -85,6 +85,7 @@ export type DoctorCategory = (typeof DOCTOR_CATEGORIES)[number] | string;
 export type DoctorRow = {
   id: number;
   full_name: string;
+  clinic_id: number | null;
   category: string;
   specialty: string;
   years_experience: number;
@@ -94,6 +95,26 @@ export type DoctorRow = {
   accepting_patients: number;
   created_at: string;
   updated_at: string;
+};
+
+export type DoctorListItem = DoctorRow & {
+  clinic_name: string | null;
+  clinic_city: string | null;
+};
+
+export type ClinicRow = {
+  id: number;
+  name: string;
+  city: string;
+  address: string;
+  phone: string | null;
+  description: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type ClinicSummary = ClinicRow & {
+  doctor_count: number;
 };
 
 export const ROLE_HOME: Record<UserRole, string> = {

@@ -1,8 +1,28 @@
 import { DoctorsManager } from "@/components/admin/DoctorsManager";
-import { listDoctors } from "@/lib/db";
+import { listClinics, searchDoctors } from "@/lib/db";
 
-export default async function AdminDoctorsPage() {
-  const doctors = listDoctors();
+type SearchParams = Promise<{
+  q?: string;
+  clinic?: string;
+  page?: string;
+}>;
+
+export default async function AdminDoctorsPage({
+  searchParams,
+}: {
+  searchParams: SearchParams;
+}) {
+  const params = await searchParams;
+  const query = params.q?.trim() || "";
+  const clinicId = Number(params.clinic || "0") || 0;
+  const page = Number(params.page || "1") || 1;
+  const clinics = listClinics();
+  const result = searchDoctors({
+    query,
+    clinicId,
+    page,
+    pageSize: 20,
+  });
 
   return (
     <div className="space-y-6">
@@ -11,11 +31,19 @@ export default async function AdminDoctorsPage() {
           Doctors
         </h1>
         <p className="mt-2 text-[var(--muted)]">
-          Manage the directory of doctors, categories, and experience
-          descriptions shown to patients.
+          Assign doctors to clinics and manage directory profiles. Paginated for
+          large networks.
         </p>
       </div>
-      <DoctorsManager doctors={doctors} />
+      <DoctorsManager
+        clinics={clinics}
+        doctors={result.doctors}
+        total={result.total}
+        page={result.page}
+        totalPages={result.totalPages}
+        query={query}
+        clinicId={clinicId ? String(clinicId) : ""}
+      />
     </div>
   );
 }
