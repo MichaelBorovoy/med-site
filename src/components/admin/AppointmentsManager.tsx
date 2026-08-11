@@ -2,6 +2,7 @@
 
 import { FormEvent, useState } from "react";
 import { useRouter } from "next/navigation";
+import { apiClient } from "@/lib/api-client";
 import type { PatientRow } from "@/lib/types";
 
 type AppointmentItem = {
@@ -39,40 +40,38 @@ export function AppointmentsManager({
     setPending(true);
     setError("");
 
-    const response = await fetch("/api/admin/appointments", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        ...form,
-        patientId: Number(form.patientId),
-        scheduledAt: new Date(form.scheduledAt).toISOString(),
-      }),
-    });
+    try {
+      await apiClient("/api/admin/appointments", {
+        method: "POST",
+        body: JSON.stringify({
+          ...form,
+          patientId: Number(form.patientId),
+          scheduledAt: new Date(form.scheduledAt).toISOString(),
+        }),
+      });
 
-    const data = await response.json();
-    setPending(false);
-
-    if (!response.ok) {
-      setError(data.error || "Unable to create appointment.");
-      return;
+      setForm((current) => ({
+        ...current,
+        providerName: "",
+        reason: "",
+        notes: "",
+      }));
+      router.refresh();
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "Unable to create appointment.",
+      );
+    } finally {
+      setPending(false);
     }
-
-    setForm((current) => ({
-      ...current,
-      providerName: "",
-      reason: "",
-      notes: "",
-    }));
-    router.refresh();
   }
 
   async function onStatus(
     id: number,
     status: "scheduled" | "completed" | "cancelled",
   ) {
-    await fetch("/api/admin/appointments", {
+    await apiClient("/api/admin/appointments", {
       method: "PATCH",
-      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ id, status }),
     });
     router.refresh();
@@ -82,7 +81,7 @@ export function AppointmentsManager({
     if (!confirm("Delete this appointment?")) {
       return;
     }
-    await fetch(`/api/admin/appointments?id=${id}`, { method: "DELETE" });
+    await apiClient(`/api/admin/appointments?id=${id}`, { method: "DELETE" });
     router.refresh();
   }
 

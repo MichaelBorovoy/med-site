@@ -2,6 +2,16 @@
 
 import { FormEvent, useState } from "react";
 import { useRouter } from "next/navigation";
+import { apiClient } from "@/lib/api-client";
+
+type LoginResponse = {
+  user: {
+    id: number;
+    username: string;
+    role: "admin" | "patient";
+    patientId: number | null;
+  };
+};
 
 export function LoginForm() {
   const router = useRouter();
@@ -16,18 +26,10 @@ export function LoginForm() {
     setError("");
 
     try {
-      const response = await fetch("/api/auth/login", {
+      const data = await apiClient<LoginResponse>("/api/auth/login", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ username, password }),
       });
-
-      const data = await response.json();
-      if (!response.ok) {
-        setError(data.error || "Unable to sign in.");
-        setPending(false);
-        return;
-      }
 
       if (data.user.role === "admin") {
         router.replace("/admin");
@@ -35,8 +37,8 @@ export function LoginForm() {
         router.replace("/patient");
       }
       router.refresh();
-    } catch {
-      setError("Unable to reach the server.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to sign in.");
       setPending(false);
     }
   }

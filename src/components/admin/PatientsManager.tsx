@@ -2,6 +2,7 @@
 
 import { FormEvent, useState } from "react";
 import { useRouter } from "next/navigation";
+import { apiClient } from "@/lib/api-client";
 import type { PatientRow } from "@/lib/types";
 
 const emptyForm = {
@@ -28,22 +29,18 @@ export function PatientsManager({ patients }: { patients: PatientRow[] }) {
     setPending(true);
     setError("");
 
-    const response = await fetch("/api/admin/patients", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(form),
-    });
-
-    const data = await response.json();
-    setPending(false);
-
-    if (!response.ok) {
-      setError(data.error || "Unable to create patient.");
-      return;
+    try {
+      await apiClient("/api/admin/patients", {
+        method: "POST",
+        body: JSON.stringify(form),
+      });
+      setForm(emptyForm);
+      router.refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to create patient.");
+    } finally {
+      setPending(false);
     }
-
-    setForm(emptyForm);
-    router.refresh();
   }
 
   async function onDelete(id: number) {
@@ -51,7 +48,7 @@ export function PatientsManager({ patients }: { patients: PatientRow[] }) {
       return;
     }
 
-    await fetch(`/api/admin/patients/${id}`, { method: "DELETE" });
+    await apiClient(`/api/admin/patients/${id}`, { method: "DELETE" });
     router.refresh();
   }
 

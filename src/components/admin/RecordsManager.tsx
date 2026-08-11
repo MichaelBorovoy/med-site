@@ -2,6 +2,7 @@
 
 import { FormEvent, useState } from "react";
 import { useRouter } from "next/navigation";
+import { apiClient } from "@/lib/api-client";
 import type { PatientRow } from "@/lib/types";
 
 type RecordItem = {
@@ -43,40 +44,37 @@ export function RecordsManager({
     setPending(true);
     setError("");
 
-    const response = await fetch("/api/admin/records", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        ...form,
-        patientId: Number(form.patientId),
-        recordedAt: new Date(form.recordedAt).toISOString(),
-      }),
-    });
+    try {
+      await apiClient("/api/admin/records", {
+        method: "POST",
+        body: JSON.stringify({
+          ...form,
+          patientId: Number(form.patientId),
+          recordedAt: new Date(form.recordedAt).toISOString(),
+        }),
+      });
 
-    const data = await response.json();
-    setPending(false);
-
-    if (!response.ok) {
-      setError(data.error || "Unable to create record.");
-      return;
+      setForm((current) => ({
+        ...current,
+        title: "",
+        summary: "",
+        diagnosis: "",
+        treatment: "",
+        providerName: "",
+      }));
+      router.refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to create record.");
+    } finally {
+      setPending(false);
     }
-
-    setForm((current) => ({
-      ...current,
-      title: "",
-      summary: "",
-      diagnosis: "",
-      treatment: "",
-      providerName: "",
-    }));
-    router.refresh();
   }
 
   async function onDelete(id: number) {
     if (!confirm("Delete this medical record?")) {
       return;
     }
-    await fetch(`/api/admin/records?id=${id}`, { method: "DELETE" });
+    await apiClient(`/api/admin/records?id=${id}`, { method: "DELETE" });
     router.refresh();
   }
 
