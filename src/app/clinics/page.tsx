@@ -12,7 +12,7 @@ export default async function ClinicsPage() {
 
   return (
     <div className="min-h-screen">
-      <PublicSiteHeader session={session} subtitle="Clinic network" />
+      <PublicSiteHeader session={session} />
 
       <main className="mx-auto max-w-6xl space-y-6 px-4 py-8">
         <div>

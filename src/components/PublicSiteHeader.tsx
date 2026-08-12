@@ -9,30 +9,19 @@ const links = [
   { href: "/services", label: "Services" },
 ] as const;
 
-export function PublicSiteHeader({
-  session,
-  subtitle,
-}: {
-  session: SessionUser | null;
-  subtitle?: string;
-}) {
+export function PublicSiteHeader({ session }: { session: SessionUser | null }) {
   const portalHref = session ? homeForRole(session.role) : "/login";
 
   return (
     <header className="border-b border-[var(--line)] bg-[var(--panel)]/90 backdrop-blur">
-      <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-4 px-4 py-4">
-        <div>
-          <Link
-            href="/"
-            className="font-[family-name:var(--font-display)] text-2xl tracking-tight text-[var(--ink)]"
-          >
-            HarborCare
-          </Link>
-          {subtitle ? (
-            <p className="text-sm text-[var(--muted)]">{subtitle}</p>
-          ) : null}
-        </div>
-        <nav className="flex flex-wrap items-center gap-1 sm:gap-3">
+      <div className="mx-auto flex h-16 max-w-6xl items-center justify-between gap-4 px-4">
+        <Link
+          href="/"
+          className="font-[family-name:var(--font-display)] text-2xl tracking-tight text-[var(--ink)]"
+        >
+          HarborCare
+        </Link>
+        <nav className="flex items-center gap-1 sm:gap-2">
           {links.map((link) => (
             <Link
               key={link.href}
