@@ -7,28 +7,50 @@ ENV_FILE_PREFERRED="${ENV_FILE_PREFERRED:-/etc/harborcare/.env}"
 COMPOSE_FILE="${COMPOSE_FILE:-docker-compose.prod.yml}"
 cd "${APP_DIR}"
 
-if [[ -f "${ENV_FILE_PREFERRED}" ]]; then
-  ln -sfn "${ENV_FILE_PREFERRED}" "${APP_DIR}/.env"
-elif [[ ! -f "${APP_DIR}/.env" ]]; then
-  echo "Missing production env."
-  echo "Create ${ENV_FILE_PREFERRED} (preferred) or ${APP_DIR}/.env with DOMAIN, DATABASE_URL, SESSION_SECRET."
+resolve_env_file() {
+  if [[ -f "${ENV_FILE_PREFERRED}" ]]; then
+    ln -sfn "${ENV_FILE_PREFERRED}" "${APP_DIR}/.env"
+    printf '%s\n' "${ENV_FILE_PREFERRED}"
+    return
+  fi
+  if [[ -L "${APP_DIR}/.env" || -f "${APP_DIR}/.env" ]]; then
+    readlink -f "${APP_DIR}/.env" 2>/dev/null || printf '%s\n' "${APP_DIR}/.env"
+    return
+  fi
+  return 1
+}
+
+ENV_FILE="$(resolve_env_file)" || {
+  echo "Missing production env file."
+  echo "Create ${ENV_FILE_PREFERRED} and set DOMAIN, DATABASE_URL, SESSION_SECRET, ADMIN_USERNAME, ADMIN_PASSWORD."
   exit 1
-fi
+}
+
+echo "Loading env from ${ENV_FILE}"
 
 # shellcheck disable=SC1091
 set -a
-source "${APP_DIR}/.env"
+# shellcheck disable=SC1090
+source "${ENV_FILE}"
 set +a
 
-if [[ -z "${DOMAIN:-}" ]]; then
-  echo "DOMAIN must be set in the production .env"
+require_var() {
+  local name="$1"
+  if [[ -z "${!name:-}" ]]; then
+    echo "${name} is missing or empty in ${ENV_FILE}"
+    echo "Edit that file on the VPS (do not put secrets in git), then re-run deploy."
+    exit 1
+  fi
+}
+
+require_var DOMAIN
+
+if [[ -z "${DATABASE_URL:-}" && -z "${SUPABASE_DB_URL:-}" ]]; then
+  echo "DATABASE_URL is missing or empty in ${ENV_FILE}"
   exit 1
 fi
 
-if [[ -z "${DATABASE_URL:-}" && -z "${SUPABASE_DB_URL:-}" ]]; then
-  echo "DATABASE_URL (Supabase Postgres) must be set in the production .env"
-  exit 1
-fi
+require_var SESSION_SECRET
 
 docker compose -f "${COMPOSE_FILE}" pull caddy || true
 docker compose -f "${COMPOSE_FILE}" build --pull app
@@ -39,7 +61,7 @@ for _ in $(seq 1 40); do
   if docker compose -f "${COMPOSE_FILE}" exec -T app \
     node -e "fetch('http://127.0.0.1:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))" \
     2>/dev/null; then
-    echo "HarborCare is healthy on https://${DOMAIN}"
+    echo "HarborCare is healthy."
     docker compose -f "${COMPOSE_FILE}" ps
     exit 0
   fi
