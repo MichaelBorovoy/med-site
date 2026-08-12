@@ -1,5 +1,5 @@
 # Production stack for Hetzner (app + Caddy).
-# Database is Supabase — set DATABASE_URL in /opt/harborcare/.env
+# Secrets: /etc/harborcare/.env (see deploy/hetzner/README.md)
 #
 #   docker compose -f docker-compose.prod.yml up -d --build
 
@@ -10,12 +10,8 @@ services:
       dockerfile: Dockerfile
     image: harborcare-app:latest
     restart: unless-stopped
-    # Prefer secrets outside the rsync tree; fall back to /opt/harborcare/.env symlink.
     env_file:
-      - path: /etc/harborcare/.env
-        required: false
-      - path: .env
-        required: false
+      - /etc/harborcare/.env
     environment:
       PORT: 3000
       HOSTNAME: 0.0.0.0
