@@ -134,6 +134,44 @@ export type ServiceListItem = ServiceRow & {
   doctor_ids: string;
 };
 
+export type AssistanceQueueStatus =
+  | "waiting"
+  | "in_progress"
+  | "done"
+  | "cancelled";
+
+export type AssistanceQueueChannel = "phone" | "chat" | "walk_in" | "other";
+
+export type AssistanceQueueItem = {
+  id: number;
+  patient_id: number;
+  channel: AssistanceQueueChannel;
+  subject: string;
+  priority: "low" | "normal" | "high" | "urgent";
+  status: AssistanceQueueStatus;
+  claimed_by: number | null;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+  completed_at: string | null;
+  patient_name?: string;
+  patient_phone?: string | null;
+  claimed_by_username?: string | null;
+};
+
+export type PatientContactLog = {
+  id: number;
+  patient_id: number;
+  user_id: number | null;
+  channel: "phone" | "chat";
+  direction: "inbound" | "outbound";
+  summary: string;
+  reference_code: string | null;
+  queue_item_id: number | null;
+  created_at: string;
+  agent_username?: string | null;
+};
+
 export const ROLE_HOME: Record<UserRole, string> = {
   admin: "/admin",
   patient: "/patient",

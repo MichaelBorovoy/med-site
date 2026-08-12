@@ -1,11 +1,15 @@
 import bcrypt from "bcryptjs";
 import type {
   AppointmentRow,
+  AssistanceQueueChannel,
+  AssistanceQueueItem,
+  AssistanceQueueStatus,
   ClinicRow,
   ClinicSummary,
   DoctorListItem,
   DoctorRow,
   MedicalRecordRow,
+  PatientContactLog,
   PatientRow,
   PrescriptionRow,
   ServiceListItem,
@@ -676,6 +680,81 @@ async function seedServices() {
   await upsertMeta(sql, "services_seeded", "1");
 }
 
+async function ensureAssistanceSchema() {
+  const sql = getSql();
+  await sql.unsafe(`
+    CREATE TABLE IF NOT EXISTS assistance_queue (
+      id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+      patient_id BIGINT NOT NULL REFERENCES patients(id) ON DELETE CASCADE,
+      channel TEXT NOT NULL CHECK (channel IN ('phone', 'chat', 'walk_in', 'other')),
+      subject TEXT NOT NULL,
+      priority TEXT NOT NULL DEFAULT 'normal'
+        CHECK (priority IN ('low', 'normal', 'high', 'urgent')),
+      status TEXT NOT NULL DEFAULT 'waiting'
+        CHECK (status IN ('waiting', 'in_progress', 'done', 'cancelled')),
+      claimed_by BIGINT REFERENCES users(id) ON DELETE SET NULL,
+      notes TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      completed_at TIMESTAMPTZ
+    );
+
+    CREATE TABLE IF NOT EXISTS patient_contact_logs (
+      id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+      patient_id BIGINT NOT NULL REFERENCES patients(id) ON DELETE CASCADE,
+      user_id BIGINT REFERENCES users(id) ON DELETE SET NULL,
+      channel TEXT NOT NULL CHECK (channel IN ('phone', 'chat')),
+      direction TEXT NOT NULL DEFAULT 'inbound'
+        CHECK (direction IN ('inbound', 'outbound')),
+      summary TEXT NOT NULL,
+      reference_code TEXT,
+      queue_item_id BIGINT REFERENCES assistance_queue(id) ON DELETE SET NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_assistance_queue_status ON assistance_queue(status);
+    CREATE INDEX IF NOT EXISTS idx_assistance_queue_patient_id ON assistance_queue(patient_id);
+    CREATE INDEX IF NOT EXISTS idx_patient_contact_logs_patient_id ON patient_contact_logs(patient_id);
+  `);
+}
+
+async function seedAssistanceQueue() {
+  const sql = getSql();
+  const seeded = await sql`
+    SELECT value FROM meta WHERE key = 'assistance_queue_seeded'
+  `;
+  if (seeded[0]?.value === "1") {
+    return;
+  }
+
+  const [{ count }] = await sql`
+    SELECT COUNT(*)::int AS count FROM assistance_queue
+  `;
+  if (count === 0) {
+    const patients = await sql`
+      SELECT id, full_name FROM patients ORDER BY id ASC LIMIT 5
+    `;
+    for (const [index, patient] of patients.entries()) {
+      const channel = index % 2 === 0 ? "phone" : "chat";
+      const priority = index === 0 ? "high" : "normal";
+      await sql`
+        INSERT INTO assistance_queue (
+          patient_id, channel, subject, priority, status, notes
+        ) VALUES (
+          ${patient.id},
+          ${channel},
+          ${channel === "phone" ? "Inbound phone consult request" : "Chat follow-up about care plan"},
+          ${priority},
+          'waiting',
+          ${"Seeded assistance queue item for " + String(patient.full_name)}
+        )
+      `;
+    }
+  }
+
+  await upsertMeta(sql, "assistance_queue_seeded", "1");
+}
+
 export async function ensureDb() {
   // Docker/image builds must not require DATABASE_URL; it is injected at runtime.
   const hasDatabaseUrl = Boolean(
@@ -693,6 +772,8 @@ export async function ensureDb() {
       await seedFromEnv();
       await seedScaleDoctors();
       await seedServices();
+      await ensureAssistanceSchema();
+      await seedAssistanceQueue();
     })();
   }
   await dbReady;
@@ -1593,5 +1674,198 @@ export async function getDashboardStats() {
     SELECT COUNT(*)::int AS count FROM services
   `;
 
-  return { patients, records, appointments, users, doctors, clinics, services };
+  let queueWaiting = 0;
+  let queueInProgress = 0;
+  try {
+    const [{ count: waiting }] = await sql`
+      SELECT COUNT(*)::int AS count FROM assistance_queue WHERE status = 'waiting'
+    `;
+    const [{ count: inProgress }] = await sql`
+      SELECT COUNT(*)::int AS count FROM assistance_queue WHERE status = 'in_progress'
+    `;
+    queueWaiting = waiting;
+    queueInProgress = inProgress;
+  } catch {
+    // Tables may not exist until assistance migration/ensure runs.
+  }
+
+  return {
+    patients,
+    records,
+    appointments,
+    users,
+    doctors,
+    clinics,
+    services,
+    queueWaiting,
+    queueInProgress,
+  };
+}
+
+export async function listAssistanceQueue(status?: AssistanceQueueStatus | "open") {
+  await ensureDb();
+  const sql = getSql();
+  const rows =
+    status === "open"
+      ? await sql`
+          SELECT
+            q.*,
+            p.full_name AS patient_name,
+            p.phone AS patient_phone,
+            u.username AS claimed_by_username
+          FROM assistance_queue q
+          JOIN patients p ON p.id = q.patient_id
+          LEFT JOIN users u ON u.id = q.claimed_by
+          WHERE q.status IN ('waiting', 'in_progress')
+          ORDER BY
+            CASE q.priority
+              WHEN 'urgent' THEN 0
+              WHEN 'high' THEN 1
+              WHEN 'normal' THEN 2
+              ELSE 3
+            END,
+            q.created_at ASC
+        `
+      : status
+        ? await sql`
+            SELECT
+              q.*,
+              p.full_name AS patient_name,
+              p.phone AS patient_phone,
+              u.username AS claimed_by_username
+            FROM assistance_queue q
+            JOIN patients p ON p.id = q.patient_id
+            LEFT JOIN users u ON u.id = q.claimed_by
+            WHERE q.status = ${status}
+            ORDER BY q.created_at DESC
+          `
+        : await sql`
+            SELECT
+              q.*,
+              p.full_name AS patient_name,
+              p.phone AS patient_phone,
+              u.username AS claimed_by_username
+            FROM assistance_queue q
+            JOIN patients p ON p.id = q.patient_id
+            LEFT JOIN users u ON u.id = q.claimed_by
+            ORDER BY q.created_at DESC
+            LIMIT 100
+          `;
+
+  return serializeRows(rows) as AssistanceQueueItem[];
+}
+
+export async function createAssistanceQueueItem(data: {
+  patientId: number;
+  channel: AssistanceQueueChannel;
+  subject: string;
+  priority: "low" | "normal" | "high" | "urgent";
+  notes?: string | null;
+}) {
+  await ensureDb();
+  const sql = getSql();
+  const [row] = await sql`
+    INSERT INTO assistance_queue (patient_id, channel, subject, priority, notes)
+    VALUES (
+      ${data.patientId},
+      ${data.channel},
+      ${data.subject},
+      ${data.priority},
+      ${data.notes ?? null}
+    )
+    RETURNING id
+  `;
+  const items = await listAssistanceQueue();
+  return items.find((item) => item.id === Number(row.id));
+}
+
+export async function updateAssistanceQueueItem(data: {
+  id: number;
+  status?: AssistanceQueueStatus;
+  claimUserId?: number | null;
+  notes?: string | null;
+}) {
+  await ensureDb();
+  const sql = getSql();
+  const existing = await sql`SELECT * FROM assistance_queue WHERE id = ${data.id}`;
+  if (!existing[0]) {
+    return undefined;
+  }
+
+  const nextStatus = data.status ?? existing[0].status;
+  const claimedBy =
+    data.claimUserId !== undefined
+      ? data.claimUserId
+      : existing[0].claimed_by;
+  const notes = data.notes !== undefined ? data.notes : existing[0].notes;
+  const completedAt =
+    nextStatus === "done" || nextStatus === "cancelled" ? new Date().toISOString() : null;
+
+  await sql`
+    UPDATE assistance_queue
+    SET
+      status = ${nextStatus},
+      claimed_by = ${claimedBy},
+      notes = ${notes},
+      completed_at = ${completedAt},
+      updated_at = NOW()
+    WHERE id = ${data.id}
+  `;
+
+  const rows = await sql`
+    SELECT
+      q.*,
+      p.full_name AS patient_name,
+      p.phone AS patient_phone,
+      u.username AS claimed_by_username
+    FROM assistance_queue q
+    JOIN patients p ON p.id = q.patient_id
+    LEFT JOIN users u ON u.id = q.claimed_by
+    WHERE q.id = ${data.id}
+  `;
+  return rows[0] ? (serializeRow(rows[0]) as AssistanceQueueItem) : undefined;
+}
+
+export async function listPatientContactLogs(patientId: number) {
+  await ensureDb();
+  const sql = getSql();
+  const rows = await sql`
+    SELECT
+      c.*,
+      u.username AS agent_username
+    FROM patient_contact_logs c
+    LEFT JOIN users u ON u.id = c.user_id
+    WHERE c.patient_id = ${patientId}
+    ORDER BY c.created_at DESC
+  `;
+  return serializeRows(rows) as PatientContactLog[];
+}
+
+export async function createPatientContactLog(data: {
+  patientId: number;
+  userId?: number | null;
+  channel: "phone" | "chat";
+  direction: "inbound" | "outbound";
+  summary: string;
+  referenceCode?: string | null;
+  queueItemId?: number | null;
+}) {
+  await ensureDb();
+  const sql = getSql();
+  const [row] = await sql`
+    INSERT INTO patient_contact_logs (
+      patient_id, user_id, channel, direction, summary, reference_code, queue_item_id
+    ) VALUES (
+      ${data.patientId},
+      ${data.userId ?? null},
+      ${data.channel},
+      ${data.direction},
+      ${data.summary},
+      ${data.referenceCode ?? null},
+      ${data.queueItemId ?? null}
+    )
+    RETURNING id
+  `;
+  const logs = await listPatientContactLogs(data.patientId);
+  return logs.find((log) => log.id === Number(row.id));
 }

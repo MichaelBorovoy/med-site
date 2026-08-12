@@ -82,3 +82,27 @@ export const userAccountSchema = z.object({
   patientId: z.coerce.number().int().positive().optional().nullable(),
   doctorId: z.coerce.number().int().positive().optional().nullable(),
 });
+
+export const assistanceQueueSchema = z.object({
+  patientId: z.coerce.number().int().positive(),
+  channel: z.enum(["phone", "chat", "walk_in", "other"]),
+  subject: z.string().trim().min(1).max(200),
+  priority: z.enum(["low", "normal", "high", "urgent"]).default("normal"),
+  notes: z.string().trim().max(2000).optional().or(z.literal("")),
+});
+
+export const assistanceQueueUpdateSchema = z.object({
+  id: z.coerce.number().int().positive(),
+  status: z.enum(["waiting", "in_progress", "done", "cancelled"]).optional(),
+  claim: z.boolean().optional(),
+  notes: z.string().trim().max(2000).optional().or(z.literal("")),
+});
+
+export const patientContactLogSchema = z.object({
+  patientId: z.coerce.number().int().positive(),
+  channel: z.enum(["phone", "chat"]),
+  direction: z.enum(["inbound", "outbound"]).default("inbound"),
+  summary: z.string().trim().min(1).max(4000),
+  referenceCode: z.string().trim().max(120).optional().or(z.literal("")),
+  queueItemId: z.coerce.number().int().positive().optional().nullable(),
+});
