@@ -10,8 +10,12 @@ services:
       dockerfile: Dockerfile
     image: harborcare-app:latest
     restart: unless-stopped
+    # Prefer secrets outside the rsync tree; fall back to /opt/harborcare/.env symlink.
     env_file:
-      - .env
+      - path: /etc/harborcare/.env
+        required: false
+      - path: .env
+        required: false
     environment:
       PORT: 3000
       HOSTNAME: 0.0.0.0
@@ -26,10 +30,10 @@ services:
           "-e",
           "fetch('http://127.0.0.1:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
         ]
-      interval: 30s
+      interval: 15s
       timeout: 5s
-      retries: 3
-      start_period: 40s
+      retries: 5
+      start_period: 60s
 
   caddy:
     image: caddy:2.9-alpine
