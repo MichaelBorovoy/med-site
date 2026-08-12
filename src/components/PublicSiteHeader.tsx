@@ -13,8 +13,8 @@ export function PublicSiteHeader({ session }: { session: SessionUser | null }) {
   const portalHref = session ? homeForRole(session.role) : "/login";
 
   return (
-    <header className="border-b border-[var(--line)] bg-[var(--panel)]/90 backdrop-blur">
-      <div className="mx-auto grid h-16 max-w-6xl grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-3 px-4">
+    <header className="sticky top-0 z-40 border-b border-[var(--line)] bg-[var(--panel)]/90 backdrop-blur">
+      <div className="mx-auto grid h-16 w-full max-w-6xl grid-cols-[11rem_1fr_11rem] items-center gap-3 px-4">
         <Link
           href="/"
           className="justify-self-start font-[family-name:var(--font-display)] text-2xl tracking-tight text-[var(--ink)]"
@@ -27,7 +27,7 @@ export function PublicSiteHeader({ session }: { session: SessionUser | null }) {
             <Link
               key={link.href}
               href={link.href}
-              className="inline-flex h-9 w-24 items-center justify-center rounded-md text-sm text-[var(--ink-soft)] hover:bg-white"
+              className="inline-flex h-9 w-24 shrink-0 items-center justify-center rounded-md text-sm text-[var(--ink-soft)] hover:bg-white"
             >
               {link.label}
             </Link>
@@ -37,7 +37,7 @@ export function PublicSiteHeader({ session }: { session: SessionUser | null }) {
         <div className="justify-self-end">
           <Link
             href={portalHref}
-            className="inline-flex h-9 min-w-24 items-center justify-center rounded-md bg-[var(--accent)] px-3 text-sm font-medium text-white hover:bg-[var(--accent-strong)]"
+            className="inline-flex h-9 w-28 shrink-0 items-center justify-center rounded-md bg-[var(--accent)] text-sm font-medium text-white hover:bg-[var(--accent-strong)]"
           >
             {session ? "Open portal" : "Sign in"}
           </Link>
