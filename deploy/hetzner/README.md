@@ -2,25 +2,29 @@
 
 On every merge/push to `main`, GitHub Actions:
 
-1. Rsyncs the repo to `/opt/harborcare` (keeps server `.env`)
+1. Rsyncs the repo to `/opt/harborcare` (**does not delete** `/etc/harborcare/.env`)
 2. Builds the Docker app image
 3. Restarts `app` + `caddy` (HTTPS)
 
 **Database:** Supabase Postgres (not on the VPS).  
 **Local DB:** use `npm run db:up` on your laptop — separate from this stack.
 
-## One-time VPS setup
+## Production secrets location
 
-1. Create a Hetzner Cloud VPS (Ubuntu 24.04).
-2. Point domain **A/AAAA** at the server IP.
-3. As root:
+Put secrets in **`/etc/harborcare/.env`** (outside the synced app folder).
+
+Deploys rsync `/opt/harborcare` and can wipe files there. Keeping `.env` under `/etc/harborcare/` avoids that. The deploy script symlinks it to `/opt/harborcare/.env` for Docker Compose.
 
 ```bash
-# After the repo exists on the machine, or curl the script from GitHub:
-bash deploy/hetzner/bootstrap.sh
-```
+ssh root@YOUR_SERVER_IP
 
-4. Edit `/opt/harborcare/.env`:
+sudo mkdir -p /etc/harborcare
+sudo nano /etc/harborcare/.env
+sudo chown root:deploy /etc/harborcare /etc/harborcare/.env
+sudo chmod 750 /etc/harborcare
+sudo chmod 640 /etc/harborcare/.env
+sudo ln -sfn /etc/harborcare/.env /opt/harborcare/.env
+```
 
 | Variable | Purpose |
 | --- | --- |
@@ -30,15 +34,17 @@ bash deploy/hetzner/bootstrap.sh
 | `SESSION_SECRET` | `openssl rand -hex 32` |
 | `ADMIN_USERNAME` / `ADMIN_PASSWORD` | Bootstrap admin |
 
-5. In Supabase SQL Editor, run `supabase/migrations/20260311120000_init.sql` once.
+## One-time VPS setup
 
-6. Create a deploy SSH key and add GitHub secrets (required or Actions will fail):
+1. Create a Hetzner Cloud VPS (Ubuntu 24.04).
+2. Point domain **A/AAAA** at the server IP.
+3. As root, run `bash deploy/hetzner/bootstrap.sh` (creates `/etc/harborcare/.env`).
+4. Edit `/etc/harborcare/.env` with real values.
+5. Apply `supabase/migrations/20260311120000_init.sql` in Supabase SQL Editor once.
+6. Add GitHub Actions secrets (below).
 
 ```bash
-# on your laptop
 ssh-keygen -t ed25519 -f ~/.ssh/harborcare_deploy -C "harborcare-github-actions" -N ""
-
-# install public key on the VPS (after bootstrap created user deploy)
 ssh-copy-id -i ~/.ssh/harborcare_deploy.pub deploy@YOUR_SERVER_IP
 ```
 
@@ -50,19 +56,10 @@ Repo → **Settings → Secrets and variables → Actions → New repository sec
 | --- | --- |
 | `HETZNER_HOST` | Server IP or hostname |
 | `HETZNER_USER` | `deploy` |
-| `HETZNER_SSH_KEY` | Full private key from `~/.ssh/harborcare_deploy` (includes `BEGIN`/`END` lines) |
+| `HETZNER_SSH_KEY` | Full private key from `~/.ssh/harborcare_deploy` |
 | `HETZNER_SSH_PORT` | Optional (default `22`) |
 
-```bash
-cat ~/.ssh/harborcare_deploy   # copy entire output into HETZNER_SSH_KEY
-```
-
-Then re-run **Actions → Deploy to Hetzner → Run workflow** (or push to `main`).
-
-## Trigger
-
-- Automatic: merge/push to `main`
-- Manual: Actions → **Deploy to Hetzner** → Run workflow
+Then re-run **Actions → Deploy to Hetzner**.
 
 ## Ops on the VPS
 
@@ -71,4 +68,5 @@ cd /opt/harborcare
 docker compose -f docker-compose.prod.yml ps
 docker compose -f docker-compose.prod.yml logs -f app
 docker compose -f docker-compose.prod.yml restart app
+sudo nano /etc/harborcare/.env   # edit secrets safely
 ```

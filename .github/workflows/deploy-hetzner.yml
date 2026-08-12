@@ -71,18 +71,45 @@ jobs:
         run: |
           set -euo pipefail
           PORT="${HETZNER_SSH_PORT:-22}"
+          # --delete cleans removed app files, but must never wipe server secrets.
+          # "P" = protect from deletion even when the file is absent from the source tree.
           rsync -az --delete \
             -e "ssh -p ${PORT}" \
+            --filter 'P .env' \
+            --filter 'P .env.*' \
+            --filter 'P data/' \
             --exclude '.git/' \
             --exclude '.github/' \
             --exclude 'node_modules/' \
             --exclude '.next/' \
             --exclude 'data/' \
             --exclude '.env' \
+            --exclude '.env.local' \
             --exclude '.env.*' \
             --exclude '.cursor/' \
             --exclude 'coverage/' \
             ./ "${HETZNER_USER}@${HETZNER_HOST}:/opt/harborcare/"
+
+      - name: Ensure production env is present
+        env:
+          HETZNER_HOST: ${{ secrets.HETZNER_HOST }}
+          HETZNER_USER: ${{ secrets.HETZNER_USER }}
+          HETZNER_SSH_PORT: ${{ secrets.HETZNER_SSH_PORT }}
+        run: |
+          set -euo pipefail
+          PORT="${HETZNER_SSH_PORT:-22}"
+          ssh -p "${PORT}" "${HETZNER_USER}@${HETZNER_HOST}" bash -s <<'EOF'
+          set -euo pipefail
+          if [[ -f /etc/harborcare/.env ]]; then
+            ln -sfn /etc/harborcare/.env /opt/harborcare/.env
+            echo "Using /etc/harborcare/.env"
+          elif [[ -f /opt/harborcare/.env ]]; then
+            echo "Using /opt/harborcare/.env"
+          else
+            echo "::error::Missing production env. Create /etc/harborcare/.env (preferred) or /opt/harborcare/.env"
+            exit 1
+          fi
+          EOF
 
       - name: Build and restart containers
         env:
