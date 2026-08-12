@@ -44,18 +44,18 @@ if [[ ! -f "${ENV_FILE}" ]]; then
   else
     cat > "${ENV_FILE}" <<'EOF'
 # Public site
-DOMAIN=care.example.com
-ACME_EMAIL=you@example.com
+DOMAIN=
+ACME_EMAIL=
 
-# Supabase Postgres (transaction pooler URI)
-DATABASE_URL=postgresql://postgres.xxxx:PASSWORD@aws-0-REGION.pooler.supabase.com:6543/postgres
+# Supabase Postgres connection URI (transaction pooler)
+DATABASE_URL=
 
 # App auth
-SESSION_SECRET=replace-with-openssl-rand-hex-32
+SESSION_SECRET=
 ADMIN_USERNAME=
 ADMIN_PASSWORD=
 
-# Leave demo accounts blank in production
+# Optional demo accounts — leave blank in production
 DEMO_PATIENT_USERNAME=
 DEMO_PATIENT_PASSWORD=
 DEMO_DOCTOR_USERNAME=
@@ -63,7 +63,7 @@ DEMO_DOCTOR_PASSWORD=
 DEMO_COORDINATOR_USERNAME=
 DEMO_COORDINATOR_PASSWORD=
 EOF
-    echo "Created ${ENV_FILE} — edit DOMAIN, DATABASE_URL, SESSION_SECRET, and admin credentials."
+    echo "Created ${ENV_FILE} — fill in required values (see deploy/hetzner/README.md)."
   fi
 fi
 

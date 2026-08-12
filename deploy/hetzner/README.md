@@ -28,11 +28,13 @@ sudo ln -sfn /etc/harborcare/.env /opt/harborcare/.env
 
 | Variable | Purpose |
 | --- | --- |
-| `DOMAIN` | e.g. `care.example.com` |
-| `ACME_EMAIL` | Let’s Encrypt email |
-| `DATABASE_URL` | Supabase **transaction pooler** URI |
-| `SESSION_SECRET` | `openssl rand -hex 32` |
-| `ADMIN_USERNAME` / `ADMIN_PASSWORD` | Bootstrap admin |
+| `DOMAIN` | Public hostname for the site |
+| `ACME_EMAIL` | Email for HTTPS certificate notices |
+| `DATABASE_URL` | Supabase DB connection URI (transaction pooler) |
+| `SESSION_SECRET` | Long random secret for session cookies |
+| `ADMIN_USERNAME` / `ADMIN_PASSWORD` | Initial admin login |
+
+Fill values only on the server. Never commit them or paste them into PRs/issues/chat.
 
 ## One-time VPS setup
 
