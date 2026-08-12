@@ -3,6 +3,8 @@ import { PatientShell } from "@/components/patient/PatientShell";
 import { requireSession } from "@/lib/auth";
 import { ensureDb, getPatient } from "@/lib/db";
 
+export const dynamic = "force-dynamic";
+
 export default async function PatientLayout({
   children,
 }: {

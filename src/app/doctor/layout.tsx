@@ -3,6 +3,8 @@ import { PortalShell } from "@/components/PortalShell";
 import { requireSession } from "@/lib/auth";
 import { ensureDb, getDoctor } from "@/lib/db";
 
+export const dynamic = "force-dynamic";
+
 const links = [
   { href: "/doctor", label: "Dashboard" },
   { href: "/doctor/appointments", label: "Appointments" },

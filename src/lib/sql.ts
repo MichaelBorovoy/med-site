@@ -11,7 +11,7 @@ function requireDatabaseUrl() {
     "";
   if (!url) {
     throw new Error(
-      "DATABASE_URL must be set. Local Docker: postgresql://harborcare:harborcare@127.0.0.1:5432/harborcare — Production: Supabase pooler URI.",
+      "DATABASE_URL must be set (local Docker Postgres or production Supabase URI).",
     );
   }
   return url;
