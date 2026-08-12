@@ -1,15 +1,24 @@
 import { NextResponse } from "next/server";
-import { ensureDb } from "@/lib/db";
 import { getSql } from "@/lib/sql";
+
+export const dynamic = "force-dynamic";
+
+function safeErrorMessage(error: unknown) {
+  const raw =
+    error instanceof Error ? error.message : "Database health check failed.";
+  return raw.replace(/postgresql:\/\/\S+/gi, "postgresql://***");
+}
 
 export async function GET() {
   try {
-    await ensureDb();
-    await getSql()`SELECT 1`;
+    // Lightweight check only — do not run seeds here (deploy health probes this).
+    const sql = getSql();
+    await sql`SELECT 1 AS ok`;
     return NextResponse.json({ ok: true });
   } catch (error) {
-    const message =
-      error instanceof Error ? error.message : "Database health check failed.";
-    return NextResponse.json({ ok: false, error: message }, { status: 503 });
+    return NextResponse.json(
+      { ok: false, error: safeErrorMessage(error) },
+      { status: 503 },
+    );
   }
 }

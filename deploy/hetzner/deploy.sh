@@ -22,7 +22,7 @@ resolve_env_file() {
 
 ENV_FILE="$(resolve_env_file)" || {
   echo "Missing production env file."
-  echo "Create ${ENV_FILE_PREFERRED} and set DOMAIN, DATABASE_URL, SESSION_SECRET, ADMIN_USERNAME, ADMIN_PASSWORD."
+  echo "Create ${ENV_FILE_PREFERRED} and set required keys (see deploy/hetzner/README.md)."
   exit 1
 }
 
@@ -38,18 +38,15 @@ require_var() {
   local name="$1"
   if [[ -z "${!name:-}" ]]; then
     echo "${name} is missing or empty in ${ENV_FILE}"
-    echo "Edit that file on the VPS (do not put secrets in git), then re-run deploy."
     exit 1
   fi
 }
 
 require_var DOMAIN
-
 if [[ -z "${DATABASE_URL:-}" && -z "${SUPABASE_DB_URL:-}" ]]; then
   echo "DATABASE_URL is missing or empty in ${ENV_FILE}"
   exit 1
 fi
-
 require_var SESSION_SECRET
 
 docker compose -f "${COMPOSE_FILE}" pull caddy || true
@@ -57,17 +54,21 @@ docker compose -f "${COMPOSE_FILE}" build --pull app
 docker compose -f "${COMPOSE_FILE}" up -d --remove-orphans
 
 echo "Waiting for health…"
-for _ in $(seq 1 40); do
+for attempt in $(seq 1 40); do
   if docker compose -f "${COMPOSE_FILE}" exec -T app \
-    node -e "fetch('http://127.0.0.1:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))" \
-    2>/dev/null; then
+    node -e "fetch('http://127.0.0.1:3000/api/health').then(async r=>{const t=await r.text(); if(!r.ok){console.error(t); process.exit(1)} process.exit(0)}).catch(e=>{console.error(String(e)); process.exit(1)})" \
+    ; then
     echo "HarborCare is healthy."
     docker compose -f "${COMPOSE_FILE}" ps
     exit 0
   fi
+  echo "Health attempt ${attempt}/40 failed; retrying…"
   sleep 3
 done
 
-echo "Deploy finished but health check did not pass yet. Check logs:"
-echo "  docker compose -f ${APP_DIR}/${COMPOSE_FILE} logs --tail=100 app"
+echo "Deploy finished but health check did not pass."
+echo "--- app logs (tail) ---"
+docker compose -f "${COMPOSE_FILE}" logs --tail=120 app || true
+echo "--- container status ---"
+docker compose -f "${COMPOSE_FILE}" ps || true
 exit 1

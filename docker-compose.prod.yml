@@ -1,5 +1,5 @@
 # Production stack for Hetzner (app + Caddy).
-# Database is Supabase — set DATABASE_URL in /opt/harborcare/.env
+# Secrets: /etc/harborcare/.env (see deploy/hetzner/README.md)
 #
 #   docker compose -f docker-compose.prod.yml up -d --build
 
@@ -11,7 +11,7 @@ services:
     image: harborcare-app:latest
     restart: unless-stopped
     env_file:
-      - .env
+      - /etc/harborcare/.env
     environment:
       PORT: 3000
       HOSTNAME: 0.0.0.0
@@ -26,10 +26,10 @@ services:
           "-e",
           "fetch('http://127.0.0.1:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
         ]
-      interval: 30s
+      interval: 15s
       timeout: 5s
-      retries: 3
-      start_period: 40s
+      retries: 5
+      start_period: 60s
 
   caddy:
     image: caddy:2.9-alpine
