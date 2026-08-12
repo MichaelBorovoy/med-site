@@ -677,6 +677,14 @@ async function seedServices() {
 }
 
 export async function ensureDb() {
+  // Docker/image builds must not require DATABASE_URL; it is injected at runtime.
+  const hasDatabaseUrl = Boolean(
+    process.env.DATABASE_URL?.trim() || process.env.SUPABASE_DB_URL?.trim(),
+  );
+  if (!hasDatabaseUrl && process.env.NEXT_PHASE === "phase-production-build") {
+    return;
+  }
+
   if (!dbReady) {
     dbReady = (async () => {
       getSql();

@@ -10,6 +10,7 @@ COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV NODE_ENV=production
+# DATABASE_URL is provided at runtime via compose env_file — do not bake secrets into the image.
 RUN npm run build \
   && npm prune --omit=dev
 

@@ -5,6 +5,8 @@ import { getSession } from "@/lib/auth";
 import { ensureDb } from "@/lib/db";
 import { homeForRole } from "@/lib/permissions";
 
+export const dynamic = "force-dynamic";
+
 export default async function LoginPage() {
   await ensureDb();
   const session = await getSession();

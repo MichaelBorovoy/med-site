@@ -3,6 +3,8 @@ import { AdminShell } from "@/components/admin/AdminShell";
 import { requireSession } from "@/lib/auth";
 import { ensureDb } from "@/lib/db";
 
+export const dynamic = "force-dynamic";
+
 export default async function AdminLayout({
   children,
 }: {
