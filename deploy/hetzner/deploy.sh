@@ -3,26 +3,30 @@
 set -euo pipefail
 
 APP_DIR="${APP_DIR:-/opt/harborcare}"
+ENV_FILE_PREFERRED="${ENV_FILE_PREFERRED:-/etc/harborcare/.env}"
 COMPOSE_FILE="${COMPOSE_FILE:-docker-compose.prod.yml}"
 cd "${APP_DIR}"
 
-if [[ ! -f .env ]]; then
-  echo "Missing ${APP_DIR}/.env — run bootstrap and set DOMAIN, DATABASE_URL, SESSION_SECRET."
+if [[ -f "${ENV_FILE_PREFERRED}" ]]; then
+  ln -sfn "${ENV_FILE_PREFERRED}" "${APP_DIR}/.env"
+elif [[ ! -f "${APP_DIR}/.env" ]]; then
+  echo "Missing production env."
+  echo "Create ${ENV_FILE_PREFERRED} (preferred) or ${APP_DIR}/.env with DOMAIN, DATABASE_URL, SESSION_SECRET."
   exit 1
 fi
 
 # shellcheck disable=SC1091
 set -a
-source .env
+source "${APP_DIR}/.env"
 set +a
 
 if [[ -z "${DOMAIN:-}" ]]; then
-  echo "DOMAIN must be set in ${APP_DIR}/.env"
+  echo "DOMAIN must be set in the production .env"
   exit 1
 fi
 
 if [[ -z "${DATABASE_URL:-}" && -z "${SUPABASE_DB_URL:-}" ]]; then
-  echo "DATABASE_URL (Supabase Postgres) must be set in ${APP_DIR}/.env"
+  echo "DATABASE_URL (Supabase Postgres) must be set in the production .env"
   exit 1
 fi
 
