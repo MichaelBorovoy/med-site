@@ -9,6 +9,9 @@ export type Permission =
   | "doctor:write_records"
   | "coordinator:assist"
   | "coordinator:manage_appointments"
+  | "coordinator:read_records"
+  | "coordinator:write_records"
+  | "coordinator:queue"
   | "admin:all";
 
 const ROLE_PERMISSIONS: Record<UserRole, Permission[]> = {
@@ -18,6 +21,9 @@ const ROLE_PERMISSIONS: Record<UserRole, Permission[]> = {
     "public:read",
     "coordinator:assist",
     "coordinator:manage_appointments",
+    "coordinator:read_records",
+    "coordinator:write_records",
+    "coordinator:queue",
   ],
   admin: [
     "public:read",
@@ -27,6 +33,9 @@ const ROLE_PERMISSIONS: Record<UserRole, Permission[]> = {
     "doctor:write_records",
     "coordinator:assist",
     "coordinator:manage_appointments",
+    "coordinator:read_records",
+    "coordinator:write_records",
+    "coordinator:queue",
     "admin:all",
   ],
 };

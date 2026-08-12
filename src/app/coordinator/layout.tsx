@@ -7,6 +7,7 @@ export const dynamic = "force-dynamic";
 
 const links = [
   { href: "/coordinator", label: "Overview" },
+  { href: "/coordinator/queue", label: "Queue" },
   { href: "/coordinator/patients", label: "Patients" },
   { href: "/coordinator/appointments", label: "Appointments" },
 ];
@@ -24,7 +25,7 @@ export default async function CoordinatorLayout({
 
   return (
     <PortalShell
-      brandNote="Care coordination"
+      brandNote="Assistance workplace"
       title={session.username}
       links={links}
     >

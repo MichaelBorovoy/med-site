@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { listPatients } from "@/lib/db";
 
 export default async function CoordinatorPatientsPage() {
@@ -7,11 +8,11 @@ export default async function CoordinatorPatientsPage() {
     <div className="space-y-6">
       <div>
         <h1 className="font-[family-name:var(--font-display)] text-4xl text-[var(--ink)]">
-          Patient assistance list
+          Patients
         </h1>
         <p className="mt-2 text-[var(--muted)]">
-          Contact and scheduling details to help patients through visits.
-          Coordinators cannot edit clinical records.
+          Open a consult to review medical records, log phone or chat contact,
+          and create a new chart note.
         </p>
       </div>
 
@@ -23,6 +24,7 @@ export default async function CoordinatorPatientsPage() {
               <th className="px-4 py-3 font-medium">Email</th>
               <th className="px-4 py-3 font-medium">Phone</th>
               <th className="px-4 py-3 font-medium">Emergency contact</th>
+              <th className="px-4 py-3 font-medium">Actions</th>
             </tr>
           </thead>
           <tbody>
@@ -35,6 +37,14 @@ export default async function CoordinatorPatientsPage() {
                 </td>
                 <td className="px-4 py-3 text-[var(--ink-soft)]">
                   {patient.emergency_contact || "—"}
+                </td>
+                <td className="px-4 py-3">
+                  <Link
+                    href={`/coordinator/patients/${patient.id}`}
+                    className="font-medium text-[var(--accent)] hover:underline"
+                  >
+                    Open consult
+                  </Link>
                 </td>
               </tr>
             ))}
