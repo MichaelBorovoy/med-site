@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { PublicSiteHeader } from "@/components/PublicSiteHeader";
 import { getSession } from "@/lib/auth";
 import {
   ensureDb,
@@ -6,14 +7,12 @@ import {
   listDoctorCategories,
   searchDoctors,
 } from "@/lib/db";
-import { homeForRole } from "@/lib/permissions";
 
 export const dynamic = "force-dynamic";
 
 export default async function HomePage() {
   await ensureDb();
   const session = await getSession();
-  const portalHref = session ? homeForRole(session.role) : "/login";
 
   const { doctors } = await searchDoctors({ page: 1, pageSize: 3 });
   const categories = await listDoctorCategories();
@@ -21,48 +20,7 @@ export default async function HomePage() {
 
   return (
     <div className="min-h-screen">
-      <header className="border-b border-[var(--line)] bg-[var(--panel)]/90 backdrop-blur">
-        <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-4 px-4 py-4">
-          <p className="font-[family-name:var(--font-display)] text-2xl tracking-tight text-[var(--ink)]">
-            HarborCare
-          </p>
-          <div className="flex items-center gap-3">
-            <Link
-              href="/clinics"
-              className="rounded-md px-3 py-1.5 text-sm text-[var(--ink-soft)] hover:bg-white"
-            >
-              Clinics
-            </Link>
-            <Link
-              href="/doctors"
-              className="rounded-md px-3 py-1.5 text-sm text-[var(--ink-soft)] hover:bg-white"
-            >
-              Doctors
-            </Link>
-            <Link
-              href="/services"
-              className="rounded-md px-3 py-1.5 text-sm text-[var(--ink-soft)] hover:bg-white"
-            >
-              Services
-            </Link>
-            {session ? (
-              <Link
-                href={portalHref}
-                className="rounded-md bg-[var(--accent)] px-3 py-1.5 text-sm font-medium text-white hover:bg-[var(--accent-strong)]"
-              >
-                Open {session.role} portal
-              </Link>
-            ) : (
-              <Link
-                href="/login"
-                className="rounded-md bg-[var(--accent)] px-3 py-1.5 text-sm font-medium text-white hover:bg-[var(--accent-strong)]"
-              >
-                Sign in
-              </Link>
-            )}
-          </div>
-        </div>
-      </header>
+      <PublicSiteHeader session={session} />
 
       <main>
         <section className="relative overflow-hidden px-4 py-16 md:py-24">
