@@ -48,19 +48,19 @@ export function PublicSiteHeader({ session }: { session: SessionUser | null }) {
           HarborCare
         </Link>
 
-        <nav className="hidden items-center gap-0.5 md:flex">
+        <nav className="hidden items-center gap-0 md:flex">
           {links.map((link) => (
             <Link
               key={link.href}
               href={link.href}
-              className="inline-flex h-9 items-center justify-center rounded-md px-2.5 text-sm text-[var(--ink-soft)] hover:bg-white"
+              className="inline-flex h-9 items-center justify-center rounded-md px-2 text-sm text-[var(--ink-soft)] hover:bg-white"
             >
               {link.label}
             </Link>
           ))}
           <Link
             href={portalHref}
-            className="ml-1 inline-flex h-9 items-center justify-center rounded-md bg-[var(--accent)] px-3 text-sm font-medium text-white hover:bg-[var(--accent-strong)]"
+            className="ml-0.5 inline-flex h-9 items-center justify-center rounded-md bg-[var(--accent)] px-3 text-sm font-medium text-white hover:bg-[var(--accent-strong)]"
           >
             {portalLabel}
           </Link>
