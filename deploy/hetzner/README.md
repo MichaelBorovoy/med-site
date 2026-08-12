@@ -32,18 +32,32 @@ bash deploy/hetzner/bootstrap.sh
 
 5. In Supabase SQL Editor, run `supabase/migrations/20260311120000_init.sql` once.
 
-6. Create a deploy SSH key and install the public key for user `deploy`.
+6. Create a deploy SSH key and add GitHub secrets (required or Actions will fail):
+
+```bash
+# on your laptop
+ssh-keygen -t ed25519 -f ~/.ssh/harborcare_deploy -C "harborcare-github-actions" -N ""
+
+# install public key on the VPS (after bootstrap created user deploy)
+ssh-copy-id -i ~/.ssh/harborcare_deploy.pub deploy@YOUR_SERVER_IP
+```
 
 ## GitHub Actions secrets
 
-Repo → **Settings → Secrets and variables → Actions**:
+Repo → **Settings → Secrets and variables → Actions → New repository secret**:
 
 | Secret | Value |
 | --- | --- |
 | `HETZNER_HOST` | Server IP or hostname |
 | `HETZNER_USER` | `deploy` |
-| `HETZNER_SSH_KEY` | Private key (full PEM) |
+| `HETZNER_SSH_KEY` | Full private key from `~/.ssh/harborcare_deploy` (includes `BEGIN`/`END` lines) |
 | `HETZNER_SSH_PORT` | Optional (default `22`) |
+
+```bash
+cat ~/.ssh/harborcare_deploy   # copy entire output into HETZNER_SSH_KEY
+```
+
+Then re-run **Actions → Deploy to Hetzner → Run workflow** (or push to `main`).
 
 ## Trigger
 
