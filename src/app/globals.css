@@ -22,6 +22,11 @@
   --font-display: var(--font-display);
 }
 
+html {
+  height: 100%;
+  scrollbar-gutter: stable;
+}
+
 body {
   min-height: 100%;
   color: var(--foreground);
